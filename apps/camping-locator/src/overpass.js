@@ -52,9 +52,18 @@
 
 import { fetchWithTimeout } from './fetchUtil.js';
 
+// overpass.kumi.systems used to be the fallback here but has gone bad: it
+// now DNS-resolves to unrelated infrastructure (private.coffee) that either
+// times out or returns HTTP 502 — verified live, repeatedly. That turned
+// every primary-endpoint hiccup (which does happen under normal load) into
+// a ~28s dead wait against a fallback that never actually recovers anything,
+// which is what made searches look like they hang forever instead of
+// failing over cleanly. Replaced with overpass.osm.ch (Swiss OSM community
+// mirror, independent infrastructure from overpass-api.de) — verified live:
+// consistently fast (<0.5s), CORS-enabled, same Overpass QL support.
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.osm.ch/api/interpreter',
 ];
 
 const QUERY_TIMEOUT_S = 25;
