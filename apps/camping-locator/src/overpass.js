@@ -50,13 +50,18 @@
  *    results, not a source for informal dispersed sites.
  */
 
+import { fetchWithTimeout } from './fetchUtil.js';
+
 const ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
 ];
 
 const QUERY_TIMEOUT_S = 25;
-const FETCH_TIMEOUT_MS = 45000;
+// A few seconds past the server's own [timeout:25] budget — the server
+// self-aborts at 25s, so waiting much longer client-side only adds dead
+// time to a search that's already going to fail.
+const FETCH_TIMEOUT_MS = 28000;
 
 function buildQuery(bounds, { includeWater, includeStateParks }) {
   const b = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
@@ -106,27 +111,17 @@ function classify(elements) {
   return result;
 }
 
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 // One bbox, small enough to be a single safe Overpass request. Tries the
 // primary mirror first, falling back to the secondary on a real failure
 // (verified live: the secondary has itself returned both hangs and HTTP
 // 406/502 during testing, so it's a fallback, not something to spread
 // routine load onto).
-async function queryTile(bounds, options) {
+async function queryTile(bounds, options, signal) {
   const query = buildQuery(bounds, options);
   let lastError;
   for (const endpoint of ENDPOINTS) {
     try {
-      const res = await fetchWithTimeout(endpoint, { method: 'POST', body: query }, FETCH_TIMEOUT_MS);
+      const res = await fetchWithTimeout(endpoint, { method: 'POST', body: query }, FETCH_TIMEOUT_MS, signal);
       if (!res.ok) throw new Error(`Overpass returned HTTP ${res.status}`);
       const data = await res.json();
       return data.elements || [];
@@ -173,7 +168,7 @@ function splitIntoTiles(bounds, area) {
 // failed but at least one other succeeded, so a single bad tile doesn't
 // throw away results the rest of the search already found. Only throws if
 // every tile failed.
-export async function queryArea(bounds, { includeWater = false, includeStateParks = false, onProgress } = {}) {
+export async function queryArea(bounds, { includeWater = false, includeStateParks = false, onProgress, signal } = {}) {
   const area = boundsAreaDegrees(bounds);
   const tiles = splitIntoTiles(bounds, area);
 
@@ -181,18 +176,21 @@ export async function queryArea(bounds, { includeWater = false, includeStatePark
   let failures = 0;
   let lastError;
   for (let i = 0; i < tiles.length; i++) {
+    if (signal?.aborted) break; // caller no longer wants this (superseded by a newer search) — stop issuing more requests
     try {
-      const elements = await queryTile(tiles[i], { includeWater, includeStateParks });
+      const elements = await queryTile(tiles[i], { includeWater, includeStateParks }, signal);
       for (const el of elements) {
         seen.set(`${el.type}/${el.id}`, el);
       }
     } catch (err) {
+      if (signal?.aborted) break;
       failures++;
       lastError = err;
       console.error(`Tile ${i + 1}/${tiles.length} failed:`, err);
     }
     onProgress?.(i + 1, tiles.length);
   }
+  if (signal?.aborted) throw new DOMException('Superseded by a newer search', 'AbortError');
   if (failures === tiles.length) throw lastError;
   return { ...classify(Array.from(seen.values())), partial: failures > 0 };
 }

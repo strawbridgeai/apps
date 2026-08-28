@@ -6,13 +6,18 @@
  * than re-fetching per map viewport — this layer never needs a "search
  * this area" query at all, unlike everything else on the map.
  */
+import { fetchWithTimeout } from './fetchUtil.js';
+
 const API_BASE = `${location.protocol}//${location.hostname}:2012`;
+// A cold backend cache paginates ~474 NPS units server-side (measured
+// ~3-4s) before it can answer — give that real headroom, still bounded.
+const FETCH_TIMEOUT_MS = 20000;
 
 let cache = null;
 
 export async function getNationalParks() {
   if (cache) return cache;
-  const res = await fetch(`${API_BASE}/api/parks`);
+  const res = await fetchWithTimeout(`${API_BASE}/api/parks`, {}, FETCH_TIMEOUT_MS);
   if (!res.ok) throw new Error(`Parks API returned HTTP ${res.status}`);
   const data = await res.json();
   cache = data.map((p) => ({

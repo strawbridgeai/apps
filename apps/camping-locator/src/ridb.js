@@ -11,7 +11,10 @@
  * campgrounds specifically, but NOT a substitute for OSM's free/dispersed
  * camping layer.
  */
+import { fetchWithTimeout } from './fetchUtil.js';
+
 const API_BASE = `${location.protocol}//${location.hostname}:2012`;
+const FETCH_TIMEOUT_MS = 15000; // our own backend, on the same VPS — should always be fast; a hang here means the service is down, not slow
 
 const EARTH_RADIUS_MILES = 3958.8;
 
@@ -37,10 +40,10 @@ export function boundsToCenterRadius(bounds) {
   return { center, radius };
 }
 
-export async function queryCampgrounds(bounds) {
+export async function queryCampgrounds(bounds, signal) {
   const { center, radius } = boundsToCenterRadius(bounds);
   const url = `${API_BASE}/api/campgrounds?lat=${center[0]}&lon=${center[1]}&radius=${radius}`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, {}, FETCH_TIMEOUT_MS, signal);
   if (!res.ok) throw new Error(`Campgrounds API returned HTTP ${res.status}`);
   const data = await res.json();
   return data.map((c) => ({

@@ -113,21 +113,35 @@ function setStatus(text, isError = false) {
   statusEl.classList.toggle('status-error', isError);
 }
 
-let searchInFlight = false;
+// A generation counter, not a boolean "in flight" lock — a lock meant a
+// single hung request (e.g. Overpass silently sitting on a connection)
+// would block every search after it forever, including panning somewhere
+// completely different, since nothing ever reset the flag. Now every call
+// to runSearch proceeds immediately; a search only applies its results if
+// it's still the most recent one by the time it finishes, so a slow/stuck
+// stale search just gets silently superseded instead of freezing the UI.
+// It also gets its in-flight requests actively cancelled (not just
+// ignored) so it stops wasting the free Overpass API's quota the moment
+// it's superseded.
+let searchGeneration = 0;
+let currentAbortController = null;
 
 // silent=true is used for automatic triggers (load/pan/zoom) — an
 // over-budget area or a transient failure there is just a quiet hint, not
 // an alarming red error, since the user didn't explicitly ask for it.
 async function runSearch({ silent = false } = {}) {
-  if (searchInFlight) return;
-
   const bounds = controller.getBounds();
   if (boundsAreaDegrees(bounds) > MAX_QUERY_AREA_DEG) {
     setStatus('Zoom in a bit more to load pins for this area.', !silent);
     return;
   }
 
-  searchInFlight = true;
+  currentAbortController?.abort();
+  const abortController = new AbortController();
+  currentAbortController = abortController;
+  const myGeneration = ++searchGeneration;
+  const isCurrent = () => myGeneration === searchGeneration;
+
   searchBtn.disabled = true;
   setStatus('Searching…');
   try {
@@ -136,22 +150,27 @@ async function runSearch({ silent = false } = {}) {
       queryArea(bounds, {
         includeWater: toggleChecked('water'),
         includeStateParks: toggleChecked('stateParks'),
+        signal: abortController.signal,
         // A wide search can take several sequential tile requests (see
         // overpass.js for why sequential) — without this it'd look like a
         // long silent hang instead of visible progress.
         onProgress: (done, total) => {
-          if (total > 1) setStatus(`Searching… (${done}/${total})`);
+          if (total > 1 && isCurrent()) setStatus(`Searching… (${done}/${total})`);
         },
       }),
       // A RIDB hiccup shouldn't sink the whole search — OSM results (free
       // camping, state parks, water) still show even if this one fails.
       wantPaidCamping
-        ? queryCampgrounds(bounds).catch((err) => {
+        ? queryCampgrounds(bounds, abortController.signal).catch((err) => {
+            if (!isCurrent()) return [];
             console.error('RIDB campgrounds fetch failed:', err);
             return [];
           })
         : Promise.resolve([]),
     ]);
+
+    if (!isCurrent()) return; // superseded by a newer search while this one was in flight — discard
+
     const { partial, ...categories } = osmResults;
     const results = { ...categories, paidCamping };
     controller.renderResults(results);
@@ -164,11 +183,11 @@ async function runSearch({ silent = false } = {}) {
       setStatus(`Found ${total} points in this area.`);
     }
   } catch (err) {
+    if (!isCurrent()) return;
     console.error(err);
     setStatus('Search failed — the data source may be busy. Try again in a moment.', !silent);
   } finally {
-    searchInFlight = false;
-    searchBtn.disabled = false;
+    if (isCurrent()) searchBtn.disabled = false;
   }
 }
 
