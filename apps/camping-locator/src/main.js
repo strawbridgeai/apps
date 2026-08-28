@@ -110,14 +110,25 @@ toggleContainer.addEventListener('change', (e) => {
 
 // GradientButton renders an actual <button id="search-btn">, so all the
 // existing plain-DOM code below (disabled toggling, click wiring) keeps
-// working unchanged against the id — createRoot().render() completes
-// synchronously here since this tree has no Suspense/transitions.
+// working unchanged against the id.
 createRoot(document.querySelector('#search-btn-mount')).render(
   createElement(GradientButton, { id: 'search-btn', type: 'button', variant: 'clay', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
 );
 
 const statusEl = document.querySelector('#status');
-const searchBtn = document.querySelector('#search-btn');
+// NOT captured once into a const: verified live (headless browser) that
+// createRoot().render() above does not reliably commit #search-btn to the
+// DOM synchronously, so a single querySelector('#search-btn') read here
+// returned null and stayed null for the rest of the session (every
+// subsequent runSearch() call then threw on `searchBtn.disabled = true`
+// before it ever reached setStatus('Searching…') or fired a single fetch —
+// silently killing every search after the page's first, whole-country
+// auto-search, which is what left "Zoom in a bit more…" stuck on screen
+// forever regardless of actual zoom level). Querying fresh on every call
+// is cheap and always reflects the real, currently-mounted element.
+function getSearchBtn() {
+  return document.querySelector('#search-btn');
+}
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
@@ -165,7 +176,8 @@ async function runSearch({ silent = false } = {}) {
   const isCurrent = () => myGeneration === searchGeneration;
   const deadlineTimer = setTimeout(() => abortController.abort(), SEARCH_DEADLINE_MS);
 
-  searchBtn.disabled = true;
+  const searchBtn = getSearchBtn();
+  if (searchBtn) searchBtn.disabled = true;
   setStatus('Searching…');
   try {
     const wantPaidCamping = toggleChecked('paidCamping');
@@ -219,7 +231,7 @@ async function runSearch({ silent = false } = {}) {
     );
   } finally {
     clearTimeout(deadlineTimer);
-    if (isCurrent()) searchBtn.disabled = false;
+    if (isCurrent() && searchBtn) searchBtn.disabled = false;
   }
 }
 
