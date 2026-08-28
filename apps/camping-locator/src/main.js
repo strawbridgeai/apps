@@ -2,9 +2,20 @@ import './style.css';
 import { createMapController, LAYER_META } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 
-// Guard against enormous/expensive queries against a shared free API —
-// forces the user to zoom in before searching a huge area.
-const MAX_QUERY_AREA_DEG = 6;
+// Guard against enormous/expensive queries against a shared free API — past
+// this, tiling (see overpass.js) stops being enough and we ask the user to
+// zoom in a bit instead of firing off a dozen+ parallel requests.
+const MAX_QUERY_AREA_DEG = 24;
+
+// How long to let the map settle after a pan/zoom before auto-searching.
+const MOVE_DEBOUNCE_MS = 700;
+
+// Fallback view used on load if geolocation isn't granted/available —
+// central Colorado, a reasonably camp-site-dense area, at a zoom level
+// that's comfortably within budget so pins always appear on startup with
+// no interaction required either way.
+const FALLBACK_CENTER = [39, -106];
+const FALLBACK_ZOOM = 9; // kept conservative so it stays in-budget even on a wide desktop window
 
 const app = document.querySelector('#app');
 app.innerHTML = `
@@ -49,10 +60,18 @@ for (const [key, meta] of Object.entries(LAYER_META)) {
 
 const controller = createMapController(document.querySelector('#map'));
 
+function waterToggleChecked() {
+  return toggleContainer.querySelector('input[data-layer="water"]')?.checked ?? false;
+}
+
 toggleContainer.addEventListener('change', (e) => {
   const input = e.target.closest('input[data-layer]');
   if (!input) return;
   controller.setLayerVisible(input.dataset.layer, input.checked);
+  // Water is excluded from the normal query (see overpass.js — it's dense
+  // enough to blow the search budget on its own), so turning it on for the
+  // first time needs its own fetch for the current view.
+  if (input.dataset.layer === 'water' && input.checked) runSearch({ silent: true });
 });
 
 const statusEl = document.querySelector('#status');
@@ -63,40 +82,82 @@ function setStatus(text, isError = false) {
   statusEl.classList.toggle('status-error', isError);
 }
 
-async function searchThisArea() {
+let searchInFlight = false;
+
+// silent=true is used for automatic triggers (load/pan/zoom) — an
+// over-budget area or a transient failure there is just a quiet hint, not
+// an alarming red error, since the user didn't explicitly ask for it.
+async function runSearch({ silent = false } = {}) {
+  if (searchInFlight) return;
+
   const bounds = controller.getBounds();
   if (boundsAreaDegrees(bounds) > MAX_QUERY_AREA_DEG) {
-    setStatus('Zoom in a bit more — this area is too large to search all at once.', true);
+    setStatus('Zoom in a bit more to load pins for this area.', !silent);
     return;
   }
+
+  searchInFlight = true;
   searchBtn.disabled = true;
   setStatus('Searching…');
   try {
-    const results = await queryArea(bounds);
+    const results = await queryArea(bounds, { includeWater: waterToggleChecked() });
     controller.renderResults(results);
     const total = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
     setStatus(total > 0 ? `Found ${total} points in this area.` : 'Nothing found here — try a different area.');
   } catch (err) {
     console.error(err);
-    setStatus('Search failed — the data source may be busy. Try again in a moment.', true);
+    setStatus('Search failed — the data source may be busy. Try again in a moment.', !silent);
   } finally {
+    searchInFlight = false;
     searchBtn.disabled = false;
   }
 }
 
-searchBtn.addEventListener('click', searchThisArea);
+searchBtn.addEventListener('click', () => runSearch({ silent: false }));
 
-document.querySelector('#locate-btn').addEventListener('click', () => {
+// Auto-search as the map settles after a pan/zoom, so results load without
+// ever needing to press the button.
+let moveTimer = null;
+controller.map.on('moveend', () => {
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => runSearch({ silent: true }), MOVE_DEBOUNCE_MS);
+});
+
+function locate({ onDone } = {}) {
   if (!navigator.geolocation) {
-    setStatus('Geolocation is not available in this browser.', true);
+    onDone?.(false);
     return;
   }
-  setStatus('Locating…');
   navigator.geolocation.getCurrentPosition(
     (pos) => {
-      controller.map.setView([pos.coords.latitude, pos.coords.longitude], 12);
-      setStatus('Centered on your location — tap "Search this area" to load nearby spots.');
+      controller.map.setView([pos.coords.latitude, pos.coords.longitude], 11);
+      onDone?.(true);
     },
-    () => setStatus('Could not get your location — check browser location permissions.', true),
+    () => onDone?.(false),
+    { timeout: 6000 },
   );
+}
+
+document.querySelector('#locate-btn').addEventListener('click', () => {
+  setStatus('Locating…');
+  locate({
+    onDone: (ok) => {
+      if (!ok) setStatus('Could not get your location — check browser location permissions.', true);
+      // on success, the moveend listener fires the search automatically
+    },
+  });
+});
+
+// --- Populate pins on startup, no interaction required ---
+// Try geolocation first (respects layer toggles as-is — renderResults only
+// ever populates the marker groups; visibility is still governed by which
+// groups are on the map). Falls back to a fixed region if location isn't
+// granted/available so the map is never empty on load.
+setStatus('Finding your area…');
+locate({
+  onDone: (ok) => {
+    // Either way, setView fires 'moveend' once the map settles, and the
+    // listener above triggers the search — no direct call needed here.
+    if (!ok) controller.map.setView(FALLBACK_CENTER, FALLBACK_ZOOM);
+  },
 });
