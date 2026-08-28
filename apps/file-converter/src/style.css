@@ -1,3 +1,10 @@
+/* Tailwind utilities only (theme.css + utilities.css) — deliberately
+   skipping tailwindcss/preflight.css, whose global reset would clobber
+   this file's existing hand-written base styles. Only the new
+   React-mounted components below use Tailwind classes. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 :root {
   --bg: #f5f6f8;
   --panel: #ffffff;
@@ -108,40 +115,15 @@ select {
 }
 select:disabled { color: var(--text-dim); background: var(--bg); }
 
-.dropzone {
+/* Dropzone/picked-file UI now comes from components/FileUpload.jsx
+   (Kokonut UI, Tailwind classes) instead of these hand-rolled rules. */
+.upload-mount-empty {
   border: 2px dashed var(--border);
   border-radius: 12px;
   padding: 36px 20px;
   text-align: center;
   color: var(--text-dim);
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.dropzone:hover { border-color: var(--accent); }
-.dropzone.dragover { border-color: var(--accent); background: #eff6ff; }
-.dropzone.disabled { cursor: not-allowed; opacity: 0.55; }
-.dropzone .dz-title { font-weight: 600; color: var(--text); margin-bottom: 4px; }
-.dropzone .dz-sub { font-size: 0.82rem; }
-
-.file-picked {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 14px;
-  background: var(--bg);
-}
-.file-picked .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-picked .size { color: var(--text-dim); font-size: 0.8rem; }
-.file-picked button {
-  background: none;
-  border: none;
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 0.8rem;
-  text-decoration: underline;
+  font-size: 0.9rem;
 }
 
 button.btn-primary {

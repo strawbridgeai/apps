@@ -3,6 +3,16 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { Badge } from './components/ui/badge.jsx';
+
+// Rendered once to a string (not a live root — these badges live inside an
+// HTML-string detail panel, see detailHtml below) using Watermelon UI's
+// Badge (https://ui.watermelon.sh, github.com/WatermelonCorp/watermelon-platform).
+function badgeHtml(variant, text) {
+  return renderToStaticMarkup(createElement(Badge, { variant }, text));
+}
 
 // Custom divIcon markers instead of Leaflet's default pin — sidesteps the
 // well-known bundler asset-path issue with L.Icon.Default, and gives free
@@ -70,15 +80,15 @@ export function detailHtml(layerKey, item) {
   if (layerKey === 'freeCamping') {
     rows.push(
       t.fee === 'no'
-        ? '<span class="badge badge-free">Free (tagged)</span>'
-        : '<span class="badge badge-unverified">Likely free — unverified, confirm locally</span>'
+        ? badgeHtml('success', 'Free (tagged)')
+        : badgeHtml('warning', 'Likely free — unverified, confirm locally')
     );
     if (t.operator) rows.push(`Operator: ${escapeHtml(t.operator)}`);
     if (t.access) rows.push(`Access: ${escapeHtml(t.access)}`);
     if (t.backcountry === 'yes') rows.push('Backcountry / walk-in site');
     if (t.capacity) rows.push(`Capacity: ${escapeHtml(t.capacity)}`);
   } else if (layerKey === 'paidCamping') {
-    rows.push('<span class="badge badge-paid">Fee required</span>');
+    rows.push(badgeHtml('muted', 'Fee required'));
     if (t.feeText) rows.push(escapeHtml(t.feeText));
     if (t.reservable) rows.push('Reservable online');
     if (t.phone) rows.push(`Phone: <a href="tel:${escapeHtml(t.phone)}">${escapeHtml(t.phone)}</a>`);

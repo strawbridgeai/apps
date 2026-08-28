@@ -1,3 +1,10 @@
+/* Tailwind utilities only (theme.css + utilities.css) — deliberately
+   skipping tailwindcss/preflight.css, whose global reset would clobber
+   this file's existing hand-written base styles. Only the new
+   React-mounted components below use Tailwind classes. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
 :root {
   --bg: #f5f6f8;
   --panel: #ffffff;
@@ -113,20 +120,6 @@ body {
   display: inline-block;
 }
 
-.primary-btn {
-  flex: none;
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 16px;
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-.primary-btn:hover { background: var(--accent-dim); }
-.primary-btn:disabled { opacity: 0.6; cursor: default; }
-
 .status {
   font-size: 0.85rem;
   color: var(--text-dim);
@@ -183,17 +176,8 @@ body {
 .camp-tooltip { font-size: 0.8rem; line-height: 1.4; }
 .camp-tooltip strong { font-size: 0.85rem; }
 
-.badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-.badge-free { background: var(--success-bg); color: var(--success); }
-.badge-unverified { background: #fffbeb; color: #b45309; }
-.badge-paid { background: #f3f4f6; color: var(--text-dim); }
+/* Badge styling now comes from components/ui/badge.jsx (Watermelon UI,
+   Tailwind classes) instead of these hand-rolled rules. */
 
 /* --- Detail panel (opened by a marker click) --- */
 .detail-panel {

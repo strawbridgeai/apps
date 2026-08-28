@@ -1,4 +1,7 @@
 import './style.css';
+import { createRoot } from 'react-dom/client';
+import { createElement } from 'react';
+import ShimmerText from './components/ShimmerText.jsx';
 import { loadPdf } from './pdf/pdfSetup.js';
 import { state, addDoc } from './state.js';
 import { renderSidebar } from './ui/sidebar.js';
@@ -18,7 +21,7 @@ app.innerHTML = `
             <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"></path>
           </svg>
         </a>
-        <h1>PDF Toolkit</h1>
+        <div id="title-mount"></div>
       </div>
       <div class="header-actions">
         <label class="btn-primary file-btn">
@@ -38,6 +41,8 @@ app.innerHTML = `
     </div>
   </div>
 `;
+
+createRoot(document.querySelector('#title-mount')).render(createElement(ShimmerText, { text: 'PDF Toolkit' }));
 
 const sidebarEl = document.querySelector('#sidebar');
 const mainViewEl = document.querySelector('#main-view');

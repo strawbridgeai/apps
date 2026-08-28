@@ -1,4 +1,7 @@
 import './style.css';
+import { createRoot } from 'react-dom/client';
+import { createElement } from 'react';
+import GradientButton from './components/GradientButton.jsx';
 import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
@@ -37,7 +40,7 @@ app.innerHTML = `
 
     <div class="toolbar">
       <div class="layer-toggles" id="layer-toggles"></div>
-      <button id="search-btn" class="primary-btn" type="button">Search this area</button>
+      <div id="search-btn-mount" class="shrink-0"></div>
       <span id="status" class="status" role="status"></span>
     </div>
 
@@ -104,6 +107,14 @@ toggleContainer.addEventListener('change', (e) => {
     runSearch({ silent: true });
   }
 });
+
+// GradientButton renders an actual <button id="search-btn">, so all the
+// existing plain-DOM code below (disabled toggling, click wiring) keeps
+// working unchanged against the id — createRoot().render() completes
+// synchronously here since this tree has no Suspense/transitions.
+createRoot(document.querySelector('#search-btn-mount')).render(
+  createElement(GradientButton, { id: 'search-btn', type: 'button', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
+);
 
 const statusEl = document.querySelector('#status');
 const searchBtn = document.querySelector('#search-btn');
@@ -191,7 +202,7 @@ async function runSearch({ silent = false } = {}) {
   }
 }
 
-searchBtn.addEventListener('click', () => runSearch({ silent: false }));
+// click wiring is the onClick prop passed to GradientButton above
 
 // Auto-search as the map settles after a pan/zoom, so results load without
 // ever needing to press the button.

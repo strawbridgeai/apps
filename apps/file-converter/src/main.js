@@ -1,4 +1,7 @@
 import './style.css';
+import { createRoot } from 'react-dom/client';
+import { createElement } from 'react';
+import FileUpload from './components/FileUpload.jsx';
 
 const API_BASE = `${location.protocol}//${location.hostname}:2011`;
 
@@ -38,19 +41,7 @@ app.innerHTML = `
         </div>
       </div>
 
-      <div class="dropzone disabled" id="dropzone">
-        <div class="dz-title">Drag &amp; drop a file here, or click to browse</div>
-        <div class="dz-sub" id="dz-sub">Choose a file type above first</div>
-        <input type="file" id="file-input" />
-      </div>
-
-      <div class="file-picked" id="file-picked" style="display:none">
-        <div>
-          <div class="name" id="file-name"></div>
-          <div class="size" id="file-size"></div>
-        </div>
-        <button id="file-clear" type="button">Remove</button>
-      </div>
+      <div id="upload-mount"></div>
 
       <button class="btn-primary" id="convert-btn" disabled>Convert</button>
 
@@ -62,19 +53,14 @@ app.innerHTML = `
 
 const categorySelect = document.querySelector('#category-select');
 const targetSelect = document.querySelector('#target-select');
-const dropzone = document.querySelector('#dropzone');
-const dzSub = document.querySelector('#dz-sub');
-const fileInput = document.querySelector('#file-input');
-const filePicked = document.querySelector('#file-picked');
-const fileNameEl = document.querySelector('#file-name');
-const fileSizeEl = document.querySelector('#file-size');
-const fileClearBtn = document.querySelector('#file-clear');
+const uploadMount = document.querySelector('#upload-mount');
 const convertBtn = document.querySelector('#convert-btn');
 const statusEl = document.querySelector('#status');
 
 let catalog = null;
 let selectedFile = null;
 let selectedExt = null;
+let uploadRoot = null;
 
 function setStatus(msg, kind) {
   statusEl.className = 'status' + (msg ? ' visible' : '') + (kind ? ' ' + kind : '');
@@ -92,12 +78,6 @@ function setCertHelp() {
   statusEl.innerHTML =
     `Couldn't reach the conversion service — your browser doesn't trust its certificate yet (this server doesn't have a proper domain set up yet, so this is a one-time step). ` +
     `<a href="${API_BASE}/api/health" target="_blank" rel="noopener">Open this link</a>, click "Advanced" → "Proceed anyway" past the warning, then come back here and try again.`;
-}
-
-function formatSize(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 function extOf(filename) {
@@ -120,17 +100,50 @@ function targetsForSelection() {
   return catalog[category]?.targets || [];
 }
 
-function updateDropzoneState() {
+// FileUpload (components/FileUpload.jsx, from Kokonut UI) manages its own
+// idle/dragging/picked-file state internally and doesn't watch prop
+// changes reactively — remounting it with a fresh `key` whenever the
+// category changes is the idiomatic way to reset it to a clean slate
+// (matches this dropzone's old behavior of clearing on category change).
+function renderFileUpload() {
   const category = categorySelect.value;
-  dropzone.classList.toggle('disabled', !category);
+  if (!uploadRoot) uploadRoot = createRoot(uploadMount);
+
   if (!category) {
-    dzSub.textContent = 'Choose a file type above first';
-    fileInput.removeAttribute('accept');
+    uploadRoot.render(createElement('div', { className: 'upload-mount-empty' }, 'Choose a file type above first'));
     return;
   }
+
   const exts = sourceExtsForCategory(category);
-  fileInput.setAttribute('accept', exts.map((e) => '.' + e).join(','));
-  dzSub.textContent = `Accepted: ${exts.map((e) => e.toUpperCase()).join(', ')}`;
+  uploadRoot.render(
+    createElement(FileUpload, {
+      key: category,
+      hintText: `${exts.map((e) => e.toUpperCase()).join(', ')} up to 100 MB`,
+      acceptAttr: exts.map((e) => '.' + e).join(','),
+      validateFile: (file) => {
+        const ext = extOf(file.name);
+        if (!exts.includes(ext)) {
+          return {
+            message: `"${file.name}" doesn't look like ${CATEGORY_ARTICLE[category]} ${CATEGORY_LABELS[category].toLowerCase()} file. Accepted: ${exts.map((e) => e.toUpperCase()).join(', ')}.`,
+          };
+        }
+        return null;
+      },
+      onUploadSuccess: (file) => {
+        selectedFile = file;
+        selectedExt = extOf(file.name);
+        setStatus('', null);
+        updateTargetOptions();
+        updateConvertEnabled();
+      },
+      onFileRemove: () => {
+        selectedFile = null;
+        selectedExt = null;
+        updateTargetOptions();
+        updateConvertEnabled();
+      },
+    })
+  );
 }
 
 function updateTargetOptions() {
@@ -150,71 +163,14 @@ function updateConvertEnabled() {
   convertBtn.disabled = !(selectedFile && targetSelect.value);
 }
 
-function resetFile() {
+categorySelect.addEventListener('change', () => {
   selectedFile = null;
   selectedExt = null;
-  fileInput.value = '';
-  filePicked.style.display = 'none';
-  dropzone.style.display = '';
   updateTargetOptions();
   updateConvertEnabled();
-}
-
-function acceptFile(file) {
-  const category = categorySelect.value;
-  if (!category) return;
-  const ext = extOf(file.name);
-  const allowed = sourceExtsForCategory(category);
-  if (!allowed.includes(ext)) {
-    setStatus(
-      `"${file.name}" doesn't look like ${CATEGORY_ARTICLE[category]} ${CATEGORY_LABELS[category].toLowerCase()} file. Accepted types: ${allowed.map((e) => e.toUpperCase()).join(', ')}.`,
-      'error'
-    );
-    return;
-  }
-  selectedFile = file;
-  selectedExt = ext;
-  setStatus('', null);
-  fileNameEl.textContent = file.name;
-  fileSizeEl.textContent = formatSize(file.size);
-  filePicked.style.display = 'flex';
-  dropzone.style.display = 'none';
-  updateTargetOptions();
-  updateConvertEnabled();
-}
-
-categorySelect.addEventListener('change', () => {
-  resetFile();
-  updateDropzoneState();
+  renderFileUpload();
 });
 
-dropzone.addEventListener('click', () => {
-  if (categorySelect.value) fileInput.click();
-});
-
-fileInput.addEventListener('change', () => {
-  if (fileInput.files[0]) acceptFile(fileInput.files[0]);
-});
-
-['dragenter', 'dragover'].forEach((evt) =>
-  dropzone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    if (categorySelect.value) dropzone.classList.add('dragover');
-  })
-);
-['dragleave', 'drop'].forEach((evt) =>
-  dropzone.addEventListener(evt, (e) => {
-    e.preventDefault();
-    dropzone.classList.remove('dragover');
-  })
-);
-dropzone.addEventListener('drop', (e) => {
-  if (!categorySelect.value) return;
-  const file = e.dataTransfer.files[0];
-  if (file) acceptFile(file);
-});
-
-fileClearBtn.addEventListener('click', resetFile);
 targetSelect.addEventListener('change', updateConvertEnabled);
 
 convertBtn.addEventListener('click', async () => {
@@ -263,4 +219,5 @@ async function loadCatalog() {
   catalog = await res.json();
 }
 
-loadCatalog().then(updateDropzoneState).catch(setCertHelp);
+renderFileUpload();
+loadCatalog().then(renderFileUpload).catch(setCertHelp);
