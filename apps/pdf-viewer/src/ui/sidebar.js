@@ -2,11 +2,10 @@ import { state, removePage } from '../state.js';
 import { renderPageToCanvas } from '../pdf/pdfSetup.js';
 import Sortable from 'sortablejs';
 import { buildPdfBytes, downloadBytes } from '../pdf/exportPdf.js';
-import { openDetail } from './detail.js';
 
 let sortableInstance = null;
 
-export function renderGrid(container, { onSelectionChange } = {}) {
+export function renderSidebar(container, { onSelectionChange, onActivate } = {}) {
   container.innerHTML = '';
 
   if (state.pages.length === 0) {
@@ -19,8 +18,14 @@ export function renderGrid(container, { onSelectionChange } = {}) {
 
   for (const page of state.pages) {
     const card = document.createElement('div');
-    card.className = 'page-card';
+    card.className = 'sidebar-item' + (state.activeKey === page.key ? ' active' : '');
     card.dataset.key = page.key;
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.page-controls')) return;
+      state.activeKey = page.key;
+      onActivate?.(page.key);
+      renderSidebar(container, { onSelectionChange, onActivate });
+    });
 
     const thumbWrap = document.createElement('div');
     thumbWrap.className = 'thumb-wrap';
@@ -50,12 +55,6 @@ export function renderGrid(container, { onSelectionChange } = {}) {
     });
     controls.appendChild(checkbox);
 
-    const openBtn = document.createElement('button');
-    openBtn.textContent = 'Open';
-    openBtn.className = 'btn-sm';
-    openBtn.addEventListener('click', () => openDetail(page.key, () => renderGrid(container, { onSelectionChange })));
-    controls.appendChild(openBtn);
-
     const extractBtn = document.createElement('button');
     extractBtn.textContent = 'Extract';
     extractBtn.className = 'btn-sm';
@@ -70,8 +69,10 @@ export function renderGrid(container, { onSelectionChange } = {}) {
     removeBtn.textContent = 'Remove';
     removeBtn.className = 'btn-sm btn-danger';
     removeBtn.addEventListener('click', () => {
+      const wasActive = state.activeKey === page.key;
       removePage(page.key);
-      renderGrid(container, { onSelectionChange });
+      if (wasActive) onActivate?.(null);
+      renderSidebar(container, { onSelectionChange, onActivate });
       onSelectionChange?.();
     });
     controls.appendChild(removeBtn);

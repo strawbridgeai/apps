@@ -1,7 +1,8 @@
 import './style.css';
 import { loadPdf } from './pdf/pdfSetup.js';
 import { state, addDoc } from './state.js';
-import { renderGrid } from './ui/grid.js';
+import { renderSidebar } from './ui/sidebar.js';
+import { renderMainView, renderEmptyMainView } from './ui/mainView.js';
 import { openWatermarkPanel } from './ui/watermarkPanel.js';
 import { autoSortByPageNumber } from './ui/autoSort.js';
 import { buildPdfBytes, downloadBytes } from './pdf/exportPdf.js';
@@ -23,11 +24,15 @@ app.innerHTML = `
       </div>
     </header>
     <div class="status-bar" id="status-bar"></div>
-    <main class="grid" id="grid"></main>
+    <div class="workspace">
+      <aside class="sidebar" id="sidebar"></aside>
+      <section class="main-view" id="main-view"></section>
+    </div>
   </div>
 `;
 
-const gridEl = document.querySelector('#grid');
+const sidebarEl = document.querySelector('#sidebar');
+const mainViewEl = document.querySelector('#main-view');
 const statusBar = document.querySelector('#status-bar');
 const fileInput = document.querySelector('#file-input');
 const autosortBtn = document.querySelector('#autosort-btn');
@@ -39,8 +44,18 @@ function setStatus(msg) {
   statusBar.textContent = msg || '';
 }
 
-function refreshGrid() {
-  renderGrid(gridEl, { onSelectionChange: updateExtractLabel });
+function refreshMainView() {
+  if (state.activeKey) renderMainView(mainViewEl, state.activeKey);
+  else renderEmptyMainView(mainViewEl);
+}
+
+function onActivate() {
+  refreshMainView();
+}
+
+function refreshAll() {
+  renderSidebar(sidebarEl, { onSelectionChange: updateExtractLabel, onActivate });
+  refreshMainView();
   updateExtractLabel();
 }
 
@@ -59,7 +74,7 @@ fileInput.addEventListener('change', async (e) => {
     addDoc(file.name, bytes, pdfDoc);
   }
   setStatus('');
-  refreshGrid();
+  refreshAll();
 });
 
 autosortBtn.addEventListener('click', async () => {
@@ -70,7 +85,7 @@ autosortBtn.addEventListener('click', async () => {
   });
   autosortBtn.disabled = false;
   setStatus(`Detected page numbers on ${result.detected}/${result.total} pages. Drag any leftovers into place.`);
-  refreshGrid();
+  refreshAll();
 });
 
 watermarkBtn.addEventListener('click', () => openWatermarkPanel());
@@ -98,4 +113,4 @@ exportBtn.addEventListener('click', async () => {
 });
 
 updateExtractLabel();
-refreshGrid();
+refreshAll();

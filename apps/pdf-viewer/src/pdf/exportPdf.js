@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { PDFDocument, StandardFonts, degrees, rgb, LineCapStyle } from 'pdf-lib';
 import { state, getAnnotations } from '../state.js';
 
 function hexToRgb01(hex) {
@@ -21,25 +21,38 @@ async function loadSourceDocs(pages) {
   return cache;
 }
 
+// Freehand highlight/pencil strokes are stored as a series of normalized
+// points; render them as connected line segments with round caps/joins so
+// consecutive segments blend into one continuous stroke, matching the SVG
+// preview drawn on screen.
+function drawFreehandStroke(pdfPage, a, w, h) {
+  const color = hexToRgb01(a.color);
+  const thickness = Math.max(1, a.size * w);
+  const opacity = a.type === 'highlight' ? 0.45 : 1;
+  for (let i = 1; i < a.points.length; i++) {
+    const p0 = a.points[i - 1];
+    const p1 = a.points[i];
+    pdfPage.drawLine({
+      start: { x: p0.x * w, y: h - p0.y * h },
+      end: { x: p1.x * w, y: h - p1.y * h },
+      thickness,
+      color,
+      opacity,
+      lineCap: LineCapStyle.Round,
+    });
+  }
+}
+
 function drawAnnotations(pdfPage, key) {
   const anns = getAnnotations(key);
   const w = pdfPage.getWidth();
   const h = pdfPage.getHeight();
   for (const a of anns) {
-    const x = a.x * w;
-    const boxW = a.w * w;
-    const boxH = a.h * h;
-    const y = h - a.y * h - boxH; // flip to bottom-left origin
-    if (a.type === 'highlight') {
-      pdfPage.drawRectangle({
-        x,
-        y,
-        width: boxW,
-        height: boxH,
-        color: hexToRgb01(a.color),
-        opacity: 0.35,
-      });
-    } else if (a.type === 'underline') {
+    if (a.type === 'underline') {
+      const x = a.x * w;
+      const boxW = a.w * w;
+      const boxH = a.h * h;
+      const y = h - a.y * h - boxH; // flip to bottom-left origin
       const lineH = Math.max(2, boxH * 0.15);
       pdfPage.drawRectangle({
         x,
@@ -49,6 +62,8 @@ function drawAnnotations(pdfPage, key) {
         color: hexToRgb01(a.color),
         opacity: 1,
       });
+    } else {
+      drawFreehandStroke(pdfPage, a, w, h);
     }
   }
 }

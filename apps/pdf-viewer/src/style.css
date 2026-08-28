@@ -20,7 +20,7 @@ body {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -58,34 +58,81 @@ body {
   color: var(--text-dim);
 }
 
-.grid {
+.workspace {
   flex: 1;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 14px;
-  padding: 16px 20px 40px;
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.sidebar {
+  flex: 0 0 260px;
+  width: 260px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.main-view {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 28px 32px 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.main-view-empty {
+  margin: auto;
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--text-dim);
+  font-size: 1rem;
+  max-width: 360px;
+}
+
+.view-header {
+  align-self: stretch;
+  max-width: 900px;
+  width: 100%;
+  font-weight: 600;
+  margin-bottom: 12px;
 }
 
 .empty-state {
-  grid-column: 1 / -1;
   text-align: center;
   padding: 80px 20px;
   color: var(--text-dim);
   font-size: 1rem;
 }
 
-.page-card {
-  background: var(--panel);
+.sidebar-item {
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  cursor: grab;
+  cursor: pointer;
 }
 
-.page-card.drag-ghost {
+.sidebar-item:hover {
+  border-color: var(--accent);
+}
+
+.sidebar-item.active {
+  background: var(--panel);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.sidebar-item.drag-ghost {
   opacity: 0.4;
 }
 
@@ -189,6 +236,9 @@ button {
 }
 
 .detail-toolbar {
+  align-self: stretch;
+  max-width: 900px;
+  width: 100%;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -198,9 +248,64 @@ button {
   border-bottom: 1px solid var(--border);
 }
 
-.tool-group { display: flex; gap: 6px; }
+.tool-tray-dock {
+  position: fixed;
+  left: 260px; /* matches .sidebar width, so the tray centers over the page, not the whole viewport */
+  right: 0;
+  bottom: 18px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 50;
+}
 
-.swatches { display: none; gap: 4px; align-items: center; }
+.tool-tray {
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 8px 24px rgba(15, 17, 21, 0.18);
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tray-tools { display: flex; gap: 6px; }
+
+.tray-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--text);
+}
+.tray-btn:hover { background: #f0f1f3; }
+.tray-btn.active { background: var(--accent); color: #fff; }
+
+.tray-swatches { display: none; gap: 6px; align-items: center; padding-left: 4px; border-left: 1px solid var(--border); }
+
+.tray-size {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+.tray-size-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text);
+}
+.tray-slider {
+  width: 90px;
+  accent-color: var(--accent);
+}
+
 .swatch {
   width: 20px;
   height: 20px;
@@ -234,7 +339,10 @@ button {
   top: 0; left: 0; right: 0; bottom: 0;
 }
 
-.ann-overlay { cursor: crosshair; }
+/* The annotation layer owns drag gestures for drawing highlights/underlines. */
+.ann-overlay {
+  touch-action: none;
+}
 
 .ann {
   position: absolute;
@@ -243,6 +351,31 @@ button {
 
 .ann-preview { opacity: 0.5; }
 
+/* Freehand highlight/pencil strokes. Sits inside .ann-overlay so it lines up
+   with the same coordinate space; never intercepts pointer events itself so
+   .ann-overlay's own listeners always own the drag gesture. */
+.ann-draw {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.ann-draw path { pointer-events: none; }
+.ann-preview-path { opacity: 0.6; }
+
+/*
+ * The OCR word layer sits on top of the annotation layer (later in the DOM)
+ * so its spans can be text-selected, but it must not swallow pointer events
+ * over the empty space between words — otherwise mousedown/pointerdown never
+ * reaches .ann-overlay underneath and drag-to-highlight silently does nothing.
+ * Only the word spans themselves opt back in to pointer events, and even
+ * those are disabled while a draw tool is active so a drag always wins.
+ */
+.text-overlay {
+  pointer-events: none;
+}
+
 .text-overlay span {
   position: absolute;
   color: transparent;
@@ -250,12 +383,19 @@ button {
   white-space: pre;
   line-height: 1;
   cursor: text;
+  pointer-events: auto;
 }
 .text-overlay span::selection {
   background: rgba(37, 99, 235, 0.35);
 }
+.text-overlay.tool-active span {
+  pointer-events: none;
+}
 
 .ann-list {
+  align-self: stretch;
+  max-width: 900px;
+  width: 100%;
   margin-top: 14px;
   font-size: 0.82rem;
 }
@@ -268,6 +408,9 @@ button {
 }
 
 .ocr-panel {
+  align-self: stretch;
+  max-width: 900px;
+  width: 100%;
   margin-top: 14px;
   display: flex;
   flex-direction: column;

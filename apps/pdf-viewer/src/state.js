@@ -24,8 +24,14 @@ export const state = {
     color: '#808080',
   },
 
-  selected: new Set(), // selected page keys in the grid
+  selected: new Set(), // selected page keys in the sidebar (for extract)
+
+  activeKey: null, // key of the page currently shown in the main view
 };
+
+export function setActiveKey(key) {
+  state.activeKey = key;
+}
 
 export function pageKey(docId, pageIndex) {
   return `${docId}:${pageIndex}`;
@@ -52,6 +58,7 @@ export function removePage(key) {
   state.pages = state.pages.filter((p) => p.key !== key);
   state.annotations.delete(key);
   state.selected.delete(key);
+  if (state.activeKey === key) state.activeKey = null;
 }
 
 export function getPage(key) {
