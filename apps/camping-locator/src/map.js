@@ -25,8 +25,8 @@ function makeIcon(meta) {
   });
 }
 
-function osmLink(item) {
-  return `https://www.openstreetmap.org/${item.id}`;
+function isOsmId(id) {
+  return /^(node|way|relation)\//.test(id);
 }
 
 function gmapsLink(item) {
@@ -43,20 +43,21 @@ function popupHtml(layerKey, item) {
   const name = t.name ? escapeHtml(t.name) : meta.label.replace(/s$/, '');
   const rows = [];
 
-  if (layerKey === 'freeCamping' || layerKey === 'paidCamping') {
-    if (layerKey === 'freeCamping') {
-      rows.push(
-        t.fee === 'no'
-          ? '<span class="badge badge-free">Free (tagged)</span>'
-          : '<span class="badge badge-unverified">Likely free — unverified, confirm locally</span>'
-      );
-    } else {
-      rows.push('<span class="badge badge-paid">Fee required</span>');
-    }
+  if (layerKey === 'freeCamping') {
+    rows.push(
+      t.fee === 'no'
+        ? '<span class="badge badge-free">Free (tagged)</span>'
+        : '<span class="badge badge-unverified">Likely free — unverified, confirm locally</span>'
+    );
     if (t.operator) rows.push(`Operator: ${escapeHtml(t.operator)}`);
     if (t.access) rows.push(`Access: ${escapeHtml(t.access)}`);
     if (t.backcountry === 'yes') rows.push('Backcountry / walk-in site');
     if (t.capacity) rows.push(`Capacity: ${escapeHtml(t.capacity)}`);
+  } else if (layerKey === 'paidCamping') {
+    rows.push('<span class="badge badge-paid">Fee required</span>');
+    if (t.feeText) rows.push(escapeHtml(t.feeText));
+    if (t.reservable) rows.push('Reservable online');
+    if (t.phone) rows.push(`Phone: ${escapeHtml(t.phone)}`);
   } else if (layerKey === 'nationalParks' || layerKey === 'stateParks') {
     if (t.operator) rows.push(`Operator: ${escapeHtml(t.operator)}`);
   } else if (layerKey === 'water') {
@@ -67,13 +68,20 @@ function popupHtml(layerKey, item) {
   const wiki = t.wikipedia
     ? `<a href="https://${escapeHtml(t.wikipedia.split(':')[0])}.wikipedia.org/wiki/${encodeURIComponent(t.wikipedia.split(':').slice(1).join(':'))}" target="_blank" rel="noopener">Wikipedia</a>`
     : '';
+  const website = t.website
+    ? `<a href="${escapeHtml(t.website)}" target="_blank" rel="noopener">${layerKey === 'paidCamping' ? 'Reserve / info' : 'Website'}</a>`
+    : '';
+  const osmSource = isOsmId(item.id)
+    ? `<a href="https://www.openstreetmap.org/${item.id}" target="_blank" rel="noopener">OSM source</a>`
+    : '';
 
   return `<div class="camp-popup">
     <strong>${name}</strong>
     ${rows.length ? `<div class="popup-rows">${rows.join('<br>')}</div>` : ''}
     <div class="popup-links">
       <a href="${gmapsLink(item)}" target="_blank" rel="noopener">Directions</a>
-      <a href="${osmLink(item)}" target="_blank" rel="noopener">OSM source</a>
+      ${osmSource}
+      ${website}
       ${wiki}
     </div>
   </div>`;
@@ -96,21 +104,30 @@ export function createMapController(container) {
     if (meta.defaultOn) map.addLayer(group);
   }
 
-  function clearAll() {
-    for (const group of Object.values(groups)) group.clearLayers();
+  // National Parks is loaded once (see nps.js — ~474 units total, no
+  // per-viewport querying) and must survive every subsequent search, so it
+  // is deliberately excluded from the clear-and-repopulate cycle below.
+  const SEARCH_LAYERS = Object.keys(LAYER_META).filter((k) => k !== 'nationalParks');
+
+  function populateGroup(key, items) {
+    const group = groups[key];
+    if (!group) return;
+    group.clearLayers();
+    for (const item of items) {
+      const marker = L.marker(item.point, { icon: icons[key] });
+      marker.bindPopup(popupHtml(key, item));
+      group.addLayer(marker);
+    }
   }
 
   function renderResults(results) {
-    clearAll();
-    for (const [key, items] of Object.entries(results)) {
-      const group = groups[key];
-      if (!group) continue;
-      for (const item of items) {
-        const marker = L.marker(item.point, { icon: icons[key] });
-        marker.bindPopup(popupHtml(key, item));
-        group.addLayer(marker);
-      }
+    for (const key of SEARCH_LAYERS) {
+      populateGroup(key, results[key] || []);
     }
+  }
+
+  function setNationalParks(items) {
+    populateGroup('nationalParks', items);
   }
 
   function setLayerVisible(key, visible) {
@@ -125,5 +142,5 @@ export function createMapController(container) {
     return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
   }
 
-  return { map, groups, renderResults, setLayerVisible, getBounds };
+  return { map, groups, renderResults, setNationalParks, setLayerVisible, getBounds };
 }

@@ -22,10 +22,20 @@
  *    includeWater is true, so the default/auto-fired searches (water is
  *    off by default) stay fast, and it's fetched on demand when that layer
  *    is actually toggled on.
- *  - National/state parks: boundary=protected_area with a `protection_title`
- *    of "National Park" / "State Park" (e.g. Arches NP, Utahraptor State
- *    Park both use this exact field) — protect_class alone is NOT reliable,
- *    it's inconsistently applied across mappers.
+ *  - State parks: boundary=protected_area with a `protection_title` of
+ *    "State Park" (e.g. Utahraptor State Park uses this exact field) —
+ *    protect_class alone is NOT reliable, it's inconsistently applied
+ *    across mappers. National parks and paid/reservable campgrounds are
+ *    NOT sourced from here — see nps.js and ridb.js: those come from the
+ *    official NPS and Recreation.gov APIs instead, which are faster and
+ *    more authoritative than OSM for exactly those two categories (verified
+ *    live: NPS's ~474 units fit in one cached fetch with no per-viewport
+ *    querying at all, and RIDB is a real indexed database rather than a
+ *    spatial query engine on shared community infrastructure). OSM remains
+ *    genuinely the best available source for free/dispersed camping
+ *    specifically — RIDB is Recreation.gov's reservation system and is
+ *    almost entirely fee-based campgrounds, confirmed against real query
+ *    results, not a source for informal dispersed sites.
  */
 
 const ENDPOINTS = [
@@ -50,8 +60,6 @@ function buildQuery(bounds, { includeWater }) {
     `node["tourism"="camp_site"](${b});` +
     `way["tourism"="camp_site"](${b});` +
     (includeWater ? `node["amenity"="drinking_water"](${b});` : '') +
-    `way["boundary"="protected_area"]["protection_title"~"National Park",i](${b});` +
-    `relation["boundary"="protected_area"]["protection_title"~"National Park",i](${b});` +
     `way["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
     `relation["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
     `);out center tags;`;
@@ -71,8 +79,10 @@ function isReliablyNotFree(tags) {
   );
 }
 
+// freeCamping and stateParks only — national parks and paid campgrounds
+// come from nps.js / ridb.js instead (see the module docstring above).
 function classify(elements) {
-  const result = { freeCamping: [], paidCamping: [], water: [], nationalParks: [], stateParks: [] };
+  const result = { freeCamping: [], water: [], stateParks: [] };
   for (const el of elements) {
     const tags = el.tags || {};
     const point = pointOf(el);
@@ -80,11 +90,9 @@ function classify(elements) {
     const item = { id: `${el.type}/${el.id}`, point, tags };
 
     if (tags.tourism === 'camp_site') {
-      (isReliablyNotFree(tags) ? result.paidCamping : result.freeCamping).push(item);
+      if (!isReliablyNotFree(tags)) result.freeCamping.push(item);
     } else if (tags.amenity === 'drinking_water') {
       result.water.push(item);
-    } else if (tags.boundary === 'protected_area' && /national park/i.test(tags.protection_title || '')) {
-      result.nationalParks.push(item);
     } else if (tags.boundary === 'protected_area' && /state park/i.test(tags.protection_title || '')) {
       result.stateParks.push(item);
     }

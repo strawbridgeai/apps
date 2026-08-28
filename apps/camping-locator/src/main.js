@@ -1,6 +1,8 @@
 import './style.css';
 import { createMapController, LAYER_META } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
+import { getNationalParks } from './nps.js';
+import { queryCampgrounds } from './ridb.js';
 
 // Guard against enormous/expensive queries against a shared free API — past
 // this, tiling (see overpass.js) stops being enough and we ask the user to
@@ -60,18 +62,22 @@ for (const [key, meta] of Object.entries(LAYER_META)) {
 
 const controller = createMapController(document.querySelector('#map'));
 
-function waterToggleChecked() {
-  return toggleContainer.querySelector('input[data-layer="water"]')?.checked ?? false;
+function toggleChecked(key) {
+  return toggleContainer.querySelector(`input[data-layer="${key}"]`)?.checked ?? false;
 }
 
 toggleContainer.addEventListener('change', (e) => {
   const input = e.target.closest('input[data-layer]');
   if (!input) return;
   controller.setLayerVisible(input.dataset.layer, input.checked);
-  // Water is excluded from the normal query (see overpass.js — it's dense
-  // enough to blow the search budget on its own), so turning it on for the
-  // first time needs its own fetch for the current view.
-  if (input.dataset.layer === 'water' && input.checked) runSearch({ silent: true });
+  // Water and paid campgrounds are both excluded from the routine
+  // search unless toggled on (water for query-weight reasons, see
+  // overpass.js; paid campgrounds because it's a separate RIDB fetch) —
+  // turning either on for the first time needs its own fetch for the
+  // current view.
+  if ((input.dataset.layer === 'water' || input.dataset.layer === 'paidCamping') && input.checked) {
+    runSearch({ silent: true });
+  }
 });
 
 const statusEl = document.querySelector('#status');
@@ -100,7 +106,19 @@ async function runSearch({ silent = false } = {}) {
   searchBtn.disabled = true;
   setStatus('Searching…');
   try {
-    const results = await queryArea(bounds, { includeWater: waterToggleChecked() });
+    const wantPaidCamping = toggleChecked('paidCamping');
+    const [osmResults, paidCamping] = await Promise.all([
+      queryArea(bounds, { includeWater: toggleChecked('water') }),
+      // A RIDB hiccup shouldn't sink the whole search — OSM results (free
+      // camping, state parks, water) still show even if this one fails.
+      wantPaidCamping
+        ? queryCampgrounds(bounds).catch((err) => {
+            console.error('RIDB campgrounds fetch failed:', err);
+            return [];
+          })
+        : Promise.resolve([]),
+    ]);
+    const results = { ...osmResults, paidCamping };
     controller.renderResults(results);
     const total = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
     setStatus(total > 0 ? `Found ${total} points in this area.` : 'Nothing found here — try a different area.');
@@ -147,6 +165,13 @@ document.querySelector('#locate-btn').addEventListener('click', () => {
     },
   });
 });
+
+// --- National Parks: loaded once, globally, independent of the map view
+// or the search cycle (see nps.js/map.js — only ~474 units nationwide, so
+// there's no reason to ever re-query this per viewport). ---
+getNationalParks()
+  .then((items) => controller.setNationalParks(items))
+  .catch((err) => console.error('Failed to load National Parks:', err));
 
 // --- Populate pins on startup, no interaction required ---
 // Try geolocation first (respects layer toggles as-is — renderResults only

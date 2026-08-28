@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# API keys — never committed, live only in server/.env locally and in
+# /etc/camping-locator/api.env on the VPS (systemd EnvironmentFile)
+.env
+server/.env
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
