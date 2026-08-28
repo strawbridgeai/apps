@@ -1,0 +1,32 @@
+name: Deploy camping-locator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/camping-locator/**'
+      - '.github/workflows/deploy-camping-locator.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/camping-locator
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+      - run: npm run build
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/camping-locator
+          command: pages deploy dist --project-name=camping-locator --branch=main
