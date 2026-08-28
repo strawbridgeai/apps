@@ -9,8 +9,13 @@ import { queryCampgrounds } from './ridb.js';
 
 // Guard against enormous/expensive queries against a shared free API — past
 // this, tiling (see overpass.js) stops being enough and we ask the user to
-// zoom in a bit instead of firing off a dozen+ parallel requests.
-const MAX_QUERY_AREA_DEG = 24;
+// zoom in a bit instead of firing off a dozen+ parallel requests. Raised
+// from 24 by user request, to let a routine search work a bit more zoomed
+// out — still tiles into the same max of 4 requests (TILE_THRESHOLD_DEG x
+// MAX_GRID in overpass.js), just with each tile covering a bit more ground
+// (~10 sq deg worst case instead of ~6), which is fine now that both
+// Overpass mirrors are healthy (see overpass.js's ENDPOINTS comment).
+const MAX_QUERY_AREA_DEG = 40;
 
 // How long to let the map settle after a pan/zoom before auto-searching.
 const MOVE_DEBOUNCE_MS = 700;
