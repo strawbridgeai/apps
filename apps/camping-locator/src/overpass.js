@@ -92,6 +92,18 @@ function buildQuery(bounds, { includeWater, includeStateParks }) {
   return `[out:json][timeout:${QUERY_TIMEOUT_S}];(` +
     `node["tourism"="camp_site"](${b});` +
     `way["tourism"="camp_site"](${b});` +
+    // Large multi-part dispersed-camping areas get mapped as a relation
+    // rather than a single way — missing entirely before (verified live:
+    // 23 real hits in a single Appalachian sample). pointOf() already
+    // handles relations via `out center`, same as ways, so no other code
+    // change is needed. Deliberately NOT adding tourism=camp_pitch here
+    // despite it being far more numerous in real data (2854 vs 1046 in the
+    // same sample) — verified live those are individual numbered pitches
+    // inside developed/private campgrounds (e.g. Scout camps), where
+    // fee/access info usually lives on the parent site rather than each
+    // pitch node, so including them would flood the map with noisy,
+    // often-mislabeled markers instead of one clean site-level pin.
+    `relation["tourism"="camp_site"](${b});` +
     (includeWater ? WATER_CLAUSES(b) : '') +
     (includeStateParks
       ? `way["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
