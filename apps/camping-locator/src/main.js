@@ -238,11 +238,18 @@ controller.map.on('moveend', () => {
 // and Firefox both pause that clock entirely while the permission prompt is
 // still up. So if the user doesn't answer the prompt within the timeout,
 // neither the success nor the error callback ever fires, onDone never runs,
-// and the caller's "Finding your area…" status is left stuck forever. This
-// constant drives an independent JS-level timer (below) that guarantees
-// onDone fires exactly once no matter what the browser's own timeout does
-// relative to an unanswered permission prompt.
-const LOCATE_TIMEOUT_MS = 6000;
+// and the caller's "Finding your area…" status is left stuck forever.
+// LOCATE_ACQUIRE_MS bounds that browser-side acquisition phase (once it
+// actually starts); LOCATE_SAFETY_MS is a separate, independent JS-level
+// ceiling covering the *whole* call, prompt-wait included, which guarantees
+// onDone fires exactly once no matter what the browser is doing internally.
+// These must NOT share one short value: an earlier version used 6s for
+// both, which meant ordinary human time spent reading/clicking the prompt
+// (a few seconds is completely normal) already ate most of the budget,
+// leaving too little left for a real, successful position fix to land
+// before the safety timer gave up and fell back to the default region.
+const LOCATE_ACQUIRE_MS = 8000;
+const LOCATE_SAFETY_MS = 15000;
 
 function locate({ onDone } = {}) {
   if (!navigator.geolocation) {
@@ -256,7 +263,7 @@ function locate({ onDone } = {}) {
     if (ok) controller.map.setView([pos.coords.latitude, pos.coords.longitude], 11);
     onDone?.(ok);
   };
-  const safetyTimer = setTimeout(() => finish(false), LOCATE_TIMEOUT_MS);
+  const safetyTimer = setTimeout(() => finish(false), LOCATE_SAFETY_MS);
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       clearTimeout(safetyTimer);
@@ -266,7 +273,7 @@ function locate({ onDone } = {}) {
       clearTimeout(safetyTimer);
       finish(false);
     },
-    { timeout: LOCATE_TIMEOUT_MS },
+    { timeout: LOCATE_ACQUIRE_MS },
   );
 }
 

@@ -135,6 +135,22 @@ export function createMapController(container, { onMarkerSelect } = {}) {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   }).addTo(map);
 
+  // Leaflet caches the container's pixel size at construction time and
+  // never re-measures it on its own — every later getBounds()/pan/zoom
+  // calculation keeps using that cached size. #map's real size depends on
+  // this app's (now Tailwind-based, much heavier) stylesheet having
+  // applied, and since a module script isn't guaranteed to wait for CSS to
+  // finish loading, Leaflet can end up initializing against a collapsed or
+  // otherwise wrong container size. Panning/zooming still look fine
+  // visually (tiles reposition via CSS transforms) but getBounds() keeps
+  // returning that same stale, wrong geographic area forever — which is
+  // exactly what made the "zoom in a bit more" area guard fire at every
+  // zoom level, not just wide ones. A ResizeObserver re-syncs Leaflet's
+  // internal size to the container's real size any time it changes, not
+  // just once at startup, so this self-heals regardless of the exact
+  // timing that caused the mismatch.
+  new ResizeObserver(() => map.invalidateSize()).observe(container);
+
   const groups = {};
   const icons = {};
   for (const [key, meta] of Object.entries(LAYER_META)) {
