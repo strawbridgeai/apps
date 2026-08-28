@@ -6,22 +6,27 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 // Custom divIcon markers instead of Leaflet's default pin — sidesteps the
 // well-known bundler asset-path issue with L.Icon.Default, and gives free
-// per-category color coding.
+// per-category color coding. State Parks defaults off now, same reasoning
+// as Water: its OSM query clause is the single most expensive part of a
+// search (a regex tag lookup, not a simple key=value match — see
+// overpass.js), so it's opt-in rather than part of every routine search.
 export const LAYER_META = {
   freeCamping: { label: 'Free / Dispersed Camping', color: '#16a34a', glyph: '⛺', defaultOn: true },
   nationalParks: { label: 'National Parks', color: '#1d4ed8', glyph: '\u{1F332}', defaultOn: true },
-  stateParks: { label: 'State Parks', color: '#0d9488', glyph: '\u{1F332}', defaultOn: true },
+  stateParks: { label: 'State Parks', color: '#0d9488', glyph: '\u{1F332}', defaultOn: false },
   water: { label: 'Potable Water', color: '#0ea5e9', glyph: '\u{1F4A7}', defaultOn: false },
   paidCamping: { label: 'Paid Campgrounds', color: '#6b7280', glyph: '⛺', defaultOn: false },
 };
+
+const PIN_SIZE = 38;
 
 function makeIcon(meta) {
   return L.divIcon({
     className: 'camp-marker',
     html: `<span class="camp-marker-dot" style="background:${meta.color}">${meta.glyph}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    popupAnchor: [0, -13],
+    iconSize: [PIN_SIZE, PIN_SIZE],
+    iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
+    popupAnchor: [0, -PIN_SIZE / 2],
   });
 }
 
@@ -37,10 +42,29 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function popupHtml(layerKey, item) {
+function itemName(layerKey, item) {
+  return item.tags.name ? escapeHtml(item.tags.name) : LAYER_META[layerKey].label.replace(/s$/, '');
+}
+
+// Short hover tooltip — just enough to identify the pin without a click.
+export function tooltipHtml(layerKey, item) {
+  const t = item.tags;
+  const name = itemName(layerKey, item);
+  let sub = '';
+  if (layerKey === 'freeCamping') sub = t.fee === 'no' ? 'Free (tagged)' : 'Likely free — unverified';
+  else if (layerKey === 'paidCamping') sub = 'Fee required';
+  else if (layerKey === 'water') sub = 'Potable water';
+  else sub = LAYER_META[layerKey].label;
+  return `<div class="camp-tooltip"><strong>${name}</strong><br>${sub}</div>`;
+}
+
+// Full detail content for the side panel (see main.js) — same information
+// the old click-popup used to show, just laid out for a docked panel
+// instead of a small map-anchored bubble.
+export function detailHtml(layerKey, item) {
   const t = item.tags;
   const meta = LAYER_META[layerKey];
-  const name = t.name ? escapeHtml(t.name) : meta.label.replace(/s$/, '');
+  const name = itemName(layerKey, item);
   const rows = [];
 
   if (layerKey === 'freeCamping') {
@@ -57,7 +81,7 @@ function popupHtml(layerKey, item) {
     rows.push('<span class="badge badge-paid">Fee required</span>');
     if (t.feeText) rows.push(escapeHtml(t.feeText));
     if (t.reservable) rows.push('Reservable online');
-    if (t.phone) rows.push(`Phone: ${escapeHtml(t.phone)}`);
+    if (t.phone) rows.push(`Phone: <a href="tel:${escapeHtml(t.phone)}">${escapeHtml(t.phone)}</a>`);
   } else if (layerKey === 'nationalParks' || layerKey === 'stateParks') {
     if (t.operator) rows.push(`Operator: ${escapeHtml(t.operator)}`);
   } else if (layerKey === 'water') {
@@ -75,19 +99,22 @@ function popupHtml(layerKey, item) {
     ? `<a href="https://www.openstreetmap.org/${item.id}" target="_blank" rel="noopener">OSM source</a>`
     : '';
 
-  return `<div class="camp-popup">
-    <strong>${name}</strong>
-    ${rows.length ? `<div class="popup-rows">${rows.join('<br>')}</div>` : ''}
-    <div class="popup-links">
-      <a href="${gmapsLink(item)}" target="_blank" rel="noopener">Directions</a>
+  return `
+    <div class="panel-category" style="color:${meta.color}">${meta.glyph} ${meta.label}</div>
+    <h2 class="panel-title">${name}</h2>
+    ${rows.length ? `<div class="panel-rows">${rows.join('<br>')}</div>` : ''}
+    <div class="panel-links">
+      <a href="${gmapsLink(item)}" target="_blank" rel="noopener" class="panel-link-btn">Directions</a>
+      ${website ? `<a href="${escapeHtml(t.website)}" target="_blank" rel="noopener" class="panel-link-btn">${layerKey === 'paidCamping' ? 'Reserve / info' : 'Website'}</a>` : ''}
+    </div>
+    <div class="panel-extra-links">
       ${osmSource}
-      ${website}
       ${wiki}
     </div>
-  </div>`;
+  `;
 }
 
-export function createMapController(container) {
+export function createMapController(container, { onMarkerSelect } = {}) {
   const map = L.map(container, { zoomControl: true }).setView([39.5, -98.35], 4); // center of contiguous US
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -115,7 +142,16 @@ export function createMapController(container) {
     group.clearLayers();
     for (const item of items) {
       const marker = L.marker(item.point, { icon: icons[key] });
-      marker.bindPopup(popupHtml(key, item));
+      marker.bindTooltip(tooltipHtml(key, item), {
+        direction: 'top',
+        offset: [0, -PIN_SIZE / 2],
+        opacity: 0.95,
+        className: 'camp-tooltip-wrap',
+      });
+      marker.on('click', (e) => {
+        L.DomEvent.stopPropagation(e); // don't let it also fire the map's own click (which closes the panel)
+        onMarkerSelect?.(key, item);
+      });
       group.addLayer(marker);
     }
   }

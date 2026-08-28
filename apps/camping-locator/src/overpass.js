@@ -32,7 +32,12 @@
  *  - State parks: boundary=protected_area with a `protection_title` of
  *    "State Park" (e.g. Utahraptor State Park uses this exact field) —
  *    protect_class alone is NOT reliable, it's inconsistently applied
- *    across mappers. National parks and paid/reservable campgrounds are
+ *    across mappers. This is a regex tag search, which Overpass can't
+ *    serve from a simple key=value index the way it can for camp_site —
+ *    it's the single most expensive clause in this query, so like water
+ *    it's opt-in (includeStateParks) rather than part of every routine
+ *    search; the default/auto-fired search is just the cheap exact-match
+ *    camp_site lookup. National parks and paid/reservable campgrounds are
  *    NOT sourced from here — see nps.js and ridb.js: those come from the
  *    official NPS and Recreation.gov APIs instead, which are faster and
  *    more authoritative than OSM for exactly those two categories (verified
@@ -53,14 +58,16 @@ const ENDPOINTS = [
 const QUERY_TIMEOUT_S = 25;
 const FETCH_TIMEOUT_MS = 45000;
 
-function buildQuery(bounds, { includeWater }) {
+function buildQuery(bounds, { includeWater, includeStateParks }) {
   const b = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
   return `[out:json][timeout:${QUERY_TIMEOUT_S}];(` +
     `node["tourism"="camp_site"](${b});` +
     `way["tourism"="camp_site"](${b});` +
     (includeWater ? `node["amenity"="drinking_water"](${b});` : '') +
-    `way["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
-    `relation["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
+    (includeStateParks
+      ? `way["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
+        `relation["boundary"="protected_area"]["protection_title"~"State Park",i](${b});`
+      : '') +
     `);out center tags;`;
 }
 
@@ -137,7 +144,7 @@ async function queryTile(bounds, options) {
 // — covers a larger area without any one request risking an Overpass-side
 // timeout, or multiple requests colliding with the rate-limit recovery
 // window.
-const TILE_THRESHOLD_DEG = 6;
+const TILE_THRESHOLD_DEG = 14; // raised from 6 now that the default query is just the cheap camp_site lookup (state parks moved behind includeStateParks above)
 const MAX_GRID = 2; // hard cap: at most 2x2 = 4 tiles total — keeps a full sequential search bounded to ~4x a single tile's time
 
 function splitIntoTiles(bounds, area) {
@@ -166,7 +173,7 @@ function splitIntoTiles(bounds, area) {
 // failed but at least one other succeeded, so a single bad tile doesn't
 // throw away results the rest of the search already found. Only throws if
 // every tile failed.
-export async function queryArea(bounds, { includeWater = false, onProgress } = {}) {
+export async function queryArea(bounds, { includeWater = false, includeStateParks = false, onProgress } = {}) {
   const area = boundsAreaDegrees(bounds);
   const tiles = splitIntoTiles(bounds, area);
 
@@ -175,7 +182,7 @@ export async function queryArea(bounds, { includeWater = false, onProgress } = {
   let lastError;
   for (let i = 0; i < tiles.length; i++) {
     try {
-      const elements = await queryTile(tiles[i], { includeWater });
+      const elements = await queryTile(tiles[i], { includeWater, includeStateParks });
       for (const el of elements) {
         seen.set(`${el.type}/${el.id}`, el);
       }

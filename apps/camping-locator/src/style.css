@@ -133,9 +133,15 @@ body {
 }
 .status-error { color: var(--danger); }
 
-#map {
+.map-area {
+  position: relative;
   flex: 1;
   min-height: 0;
+}
+
+#map {
+  height: 100%;
+  width: 100%;
 }
 
 .disclaimer {
@@ -150,23 +156,32 @@ body {
 }
 .disclaimer a { color: var(--text-dim); }
 
-/* --- Map markers & popups --- */
+/* --- Map markers, hover tooltip --- */
 .camp-marker-dot {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  font-size: 14px;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  font-size: 20px;
   line-height: 1;
+  cursor: pointer;
 }
 
-.camp-popup { font-size: 0.85rem; min-width: 160px; }
-.camp-popup strong { display: block; margin-bottom: 4px; font-size: 0.95rem; }
-.popup-rows { color: var(--text-dim); margin-bottom: 6px; line-height: 1.5; }
+.leaflet-tooltip.camp-tooltip-wrap {
+  background: var(--text);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.leaflet-tooltip.camp-tooltip-wrap::before { display: none; }
+.camp-tooltip { font-size: 0.8rem; line-height: 1.4; }
+.camp-tooltip strong { font-size: 0.85rem; }
 
 .badge {
   display: inline-block;
@@ -180,11 +195,82 @@ body {
 .badge-unverified { background: #fffbeb; color: #b45309; }
 .badge-paid { background: #f3f4f6; color: var(--text-dim); }
 
-.popup-links { display: flex; gap: 10px; }
-.popup-links a { font-size: 0.8rem; }
+/* --- Detail panel (opened by a marker click) --- */
+.detail-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 85vw;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.12);
+  padding: 20px;
+  overflow-y: auto;
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+  z-index: 1000;
+}
+.detail-panel.open { transform: translateX(0); }
+
+.panel-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text-dim);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.panel-close:hover { color: var(--text); border-color: var(--accent); }
+
+.panel-category {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 8px 0 6px;
+}
+.panel-title {
+  font-size: 1.25rem;
+  margin: 0 0 12px;
+  padding-right: 24px;
+}
+.panel-rows {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.panel-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.panel-link-btn {
+  display: block;
+  text-align: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-decoration: none;
+}
+.panel-link-btn:hover { background: var(--accent-dim); }
+.panel-extra-links { display: flex; gap: 14px; font-size: 0.82rem; }
 
 @media (max-width: 640px) {
   .header-inner h1 { font-size: 1rem; }
   .toolbar { padding: 10px 14px; }
   .disclaimer { padding: 8px 14px; }
+  .detail-panel { width: 100%; max-width: 100%; }
 }

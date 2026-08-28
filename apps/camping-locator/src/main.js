@@ -1,5 +1,5 @@
 import './style.css';
-import { createMapController, LAYER_META } from './map.js';
+import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
 import { queryCampgrounds } from './ridb.js';
@@ -41,7 +41,13 @@ app.innerHTML = `
       <span id="status" class="status" role="status"></span>
     </div>
 
-    <div id="map"></div>
+    <div class="map-area">
+      <div id="map"></div>
+      <aside id="detail-panel" class="detail-panel">
+        <button id="panel-close" class="panel-close" type="button" aria-label="Close">&times;</button>
+        <div id="panel-content"></div>
+      </aside>
+    </div>
 
     <p class="disclaimer">
       Data from <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors —
@@ -60,22 +66,41 @@ for (const [key, meta] of Object.entries(LAYER_META)) {
   toggleContainer.appendChild(label);
 }
 
-const controller = createMapController(document.querySelector('#map'));
+// --- Detail panel: opened by a marker click, closed by its own button or
+// by clicking empty map area. ---
+const detailPanel = document.querySelector('#detail-panel');
+const panelContent = document.querySelector('#panel-content');
+
+function openPanel(layerKey, item) {
+  panelContent.innerHTML = detailHtml(layerKey, item);
+  detailPanel.classList.add('open');
+}
+
+function closePanel() {
+  detailPanel.classList.remove('open');
+}
+
+document.querySelector('#panel-close').addEventListener('click', closePanel);
+
+const controller = createMapController(document.querySelector('#map'), { onMarkerSelect: openPanel });
+controller.map.on('click', closePanel);
 
 function toggleChecked(key) {
   return toggleContainer.querySelector(`input[data-layer="${key}"]`)?.checked ?? false;
 }
 
+// Water, state parks, and paid campgrounds are all excluded from the
+// routine search unless toggled on — water and state parks because their
+// OSM query clauses are expensive (see overpass.js), paid campgrounds
+// because it's a separate RIDB fetch — so turning any of them on for the
+// first time needs its own fetch for the current view.
+const ON_DEMAND_LAYERS = ['water', 'stateParks', 'paidCamping'];
+
 toggleContainer.addEventListener('change', (e) => {
   const input = e.target.closest('input[data-layer]');
   if (!input) return;
   controller.setLayerVisible(input.dataset.layer, input.checked);
-  // Water and paid campgrounds are both excluded from the routine
-  // search unless toggled on (water for query-weight reasons, see
-  // overpass.js; paid campgrounds because it's a separate RIDB fetch) —
-  // turning either on for the first time needs its own fetch for the
-  // current view.
-  if ((input.dataset.layer === 'water' || input.dataset.layer === 'paidCamping') && input.checked) {
+  if (ON_DEMAND_LAYERS.includes(input.dataset.layer) && input.checked) {
     runSearch({ silent: true });
   }
 });
@@ -110,6 +135,7 @@ async function runSearch({ silent = false } = {}) {
     const [osmResults, paidCamping] = await Promise.all([
       queryArea(bounds, {
         includeWater: toggleChecked('water'),
+        includeStateParks: toggleChecked('stateParks'),
         // A wide search can take several sequential tile requests (see
         // overpass.js for why sequential) — without this it'd look like a
         // long silent hang instead of visible progress.
