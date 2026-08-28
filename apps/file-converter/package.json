@@ -1,0 +1,16 @@
+{
+  "name": "file-converter",
+  "displayName": "File Converter",
+  "description": "Drag-and-drop audio, image, and document conversion — MP3/WAV/M4A, PNG/JPEG/HEIC/PDF, and Office to ODF (Google Docs/Sheets/Slides and Apple Pages/Numbers/Keynote compatible).",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2"
+  }
+}

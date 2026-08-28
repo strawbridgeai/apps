@@ -1,0 +1,13 @@
+{
+  "name": "file-converter-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "multer": "^2.0.0",
+    "pdf-lib": "^1.17.1"
+  }
+}
