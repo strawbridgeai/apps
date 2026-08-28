@@ -11,7 +11,15 @@ const app = document.querySelector('#app');
 app.innerHTML = `
   <div class="app-shell">
     <header class="app-header">
-      <h1>PDF Toolkit</h1>
+      <div class="header-left">
+        <a class="home-btn" href="/" title="Back to all apps">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9.5 12 3l9 6.5"></path>
+            <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"></path>
+          </svg>
+        </a>
+        <h1>PDF Toolkit</h1>
+      </div>
       <div class="header-actions">
         <label class="btn-primary file-btn">
           Add PDF(s)

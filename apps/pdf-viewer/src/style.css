@@ -44,6 +44,27 @@ body {
   margin: 0;
 }
 
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.home-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.home-btn:hover { background: #f0f1f3; color: var(--text); border-color: var(--accent); }
+.home-btn svg { width: 18px; height: 18px; }
+
 .header-actions {
   display: flex;
   gap: 8px;
