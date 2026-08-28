@@ -5,9 +5,16 @@
  * boundsAreaDegrees + the caller's zoom guard), never the whole country at
  * once, and falls back across mirrors rather than hammering one endpoint.
  * A viewport past TILE_THRESHOLD_DEG is split into a grid of smaller tiles
- * fetched in parallel (see splitIntoTiles) instead of one large request —
+ * fetched SEQUENTIALLY (see splitIntoTiles) instead of one large request —
  * lets the caller allow a bigger search area without risking a slow/timed
- * out single query.
+ * out single query. Sequential, not concurrent: verified live with a
+ * two-request isolated test (bypassing this module entirely) that
+ * Overpass's public rate limit is a slot that takes ~30-45s of real
+ * wall-clock time to regenerate after use, not a hard "N at once" ceiling
+ * that's free the instant a response lands — firing tiles concurrently,
+ * even just 2 at a time, reliably collided with that recovery window and
+ * produced explicit 429s and opaque 502s. Sequential requests, one at a
+ * time, don't hit this.
  *
  * Tag conventions (verified against real data, not assumed):
  *  - Campsites: tourism=camp_site. Most genuinely free/dispersed sites in
@@ -45,14 +52,6 @@ const ENDPOINTS = [
 
 const QUERY_TIMEOUT_S = 25;
 const FETCH_TIMEOUT_MS = 45000;
-
-// Public Overpass instances cap concurrent requests per client to a
-// handful (anonymous users get ~2 parallel query slots) — firing every
-// tile at once causes the excess ones to queue server-side and blow past
-// any reasonable client timeout. Cap in-flight requests and round-robin
-// the two mirrors so no single instance ever sees more than one of ours
-// at a time.
-const TILE_CONCURRENCY = 2;
 
 function buildQuery(bounds, { includeWater }) {
   const b = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
@@ -110,14 +109,15 @@ async function fetchWithTimeout(url, options, timeoutMs) {
   }
 }
 
-// One bbox, small enough to be a single safe Overpass request.
-// endpointOffset picks which mirror to try first (used to round-robin
-// tiles across mirrors), falling back to the other(s) on failure.
-async function queryTile(bounds, options, endpointOffset = 0) {
+// One bbox, small enough to be a single safe Overpass request. Tries the
+// primary mirror first, falling back to the secondary on a real failure
+// (verified live: the secondary has itself returned both hangs and HTTP
+// 406/502 during testing, so it's a fallback, not something to spread
+// routine load onto).
+async function queryTile(bounds, options) {
   const query = buildQuery(bounds, options);
   let lastError;
-  for (let i = 0; i < ENDPOINTS.length; i++) {
-    const endpoint = ENDPOINTS[(endpointOffset + i) % ENDPOINTS.length];
+  for (const endpoint of ENDPOINTS) {
     try {
       const res = await fetchWithTimeout(endpoint, { method: 'POST', body: query }, FETCH_TIMEOUT_MS);
       if (!res.ok) throw new Error(`Overpass returned HTTP ${res.status}`);
@@ -131,26 +131,14 @@ async function queryTile(bounds, options, endpointOffset = 0) {
   throw lastError || new Error('All Overpass endpoints failed');
 }
 
-// Runs `worker` over `items` with at most `limit` in flight at once.
-async function withConcurrencyLimit(items, limit, worker) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function runNext() {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await worker(items[i], i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, runNext));
-  return results;
-}
-
 // A single request stays fast and reliable up to about this many square
-// degrees. Above that, split the viewport into a grid of tiles fetched a
-// few at a time — covers a much larger area without any one request
-// risking an Overpass-side timeout.
+// degrees. Above that, split the viewport into a grid of tiles fetched one
+// at a time (see the module docstring for why sequential, not concurrent)
+// — covers a larger area without any one request risking an Overpass-side
+// timeout, or multiple requests colliding with the rate-limit recovery
+// window.
 const TILE_THRESHOLD_DEG = 6;
-const MAX_GRID = 3; // hard cap: at most 3x3 = 9 tiles total
+const MAX_GRID = 2; // hard cap: at most 2x2 = 4 tiles total — keeps a full sequential search bounded to ~4x a single tile's time
 
 function splitIntoTiles(bounds, area) {
   const n = Math.min(MAX_GRID, Math.max(1, Math.ceil(Math.sqrt(area / TILE_THRESHOLD_DEG))));
@@ -171,28 +159,35 @@ function splitIntoTiles(bounds, area) {
   return tiles;
 }
 
-export async function queryArea(bounds, { includeWater = false } = {}) {
+// onProgress(done, total) fires after each tile completes — lets the
+// caller show "searching… (2/4)" instead of one long silent wait, since a
+// worst-case sequential search can take a real 30-40s. Returns
+// { ...categories, partial } — partial is true if at least one tile
+// failed but at least one other succeeded, so a single bad tile doesn't
+// throw away results the rest of the search already found. Only throws if
+// every tile failed.
+export async function queryArea(bounds, { includeWater = false, onProgress } = {}) {
   const area = boundsAreaDegrees(bounds);
   const tiles = splitIntoTiles(bounds, area);
-  // Always try the primary mirror first for every tile — mirrors vary a lot
-  // in reliability moment-to-moment (verified live: the secondary has
-  // returned both hangs and HTTP 406 during testing), so actively spreading
-  // load onto a flaky one is worse than just leaning on concurrency limits
-  // against the one that's actually been reliable. Per-tile fallback to the
-  // secondary still kicks in on a real failure (see queryTile).
-  const tileResults = await withConcurrencyLimit(tiles, TILE_CONCURRENCY, (tile) =>
-    queryTile(tile, { includeWater }),
-  );
 
-  // Merge + dedupe (a way/relation centroid can only fall in one grid cell,
-  // but dedupe by id anyway as cheap insurance).
   const seen = new Map();
-  for (const elements of tileResults) {
-    for (const el of elements) {
-      seen.set(`${el.type}/${el.id}`, el);
+  let failures = 0;
+  let lastError;
+  for (let i = 0; i < tiles.length; i++) {
+    try {
+      const elements = await queryTile(tiles[i], { includeWater });
+      for (const el of elements) {
+        seen.set(`${el.type}/${el.id}`, el);
+      }
+    } catch (err) {
+      failures++;
+      lastError = err;
+      console.error(`Tile ${i + 1}/${tiles.length} failed:`, err);
     }
+    onProgress?.(i + 1, tiles.length);
   }
-  return classify(Array.from(seen.values()));
+  if (failures === tiles.length) throw lastError;
+  return { ...classify(Array.from(seen.values())), partial: failures > 0 };
 }
 
 export function boundsAreaDegrees(bounds) {

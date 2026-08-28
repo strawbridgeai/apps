@@ -108,7 +108,15 @@ async function runSearch({ silent = false } = {}) {
   try {
     const wantPaidCamping = toggleChecked('paidCamping');
     const [osmResults, paidCamping] = await Promise.all([
-      queryArea(bounds, { includeWater: toggleChecked('water') }),
+      queryArea(bounds, {
+        includeWater: toggleChecked('water'),
+        // A wide search can take several sequential tile requests (see
+        // overpass.js for why sequential) — without this it'd look like a
+        // long silent hang instead of visible progress.
+        onProgress: (done, total) => {
+          if (total > 1) setStatus(`Searching… (${done}/${total})`);
+        },
+      }),
       // A RIDB hiccup shouldn't sink the whole search — OSM results (free
       // camping, state parks, water) still show even if this one fails.
       wantPaidCamping
@@ -118,10 +126,17 @@ async function runSearch({ silent = false } = {}) {
           })
         : Promise.resolve([]),
     ]);
-    const results = { ...osmResults, paidCamping };
+    const { partial, ...categories } = osmResults;
+    const results = { ...categories, paidCamping };
     controller.renderResults(results);
     const total = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
-    setStatus(total > 0 ? `Found ${total} points in this area.` : 'Nothing found here — try a different area.');
+    if (total === 0) {
+      setStatus('Nothing found here — try a different area.');
+    } else if (partial) {
+      setStatus(`Found ${total} points (part of this area couldn't be searched — try again).`, !silent);
+    } else {
+      setStatus(`Found ${total} points in this area.`);
+    }
   } catch (err) {
     console.error(err);
     setStatus('Search failed — the data source may be busy. Try again in a moment.', !silent);
