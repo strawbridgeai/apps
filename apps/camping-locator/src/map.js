@@ -90,6 +90,11 @@ export function detailHtml(layerKey, item) {
     if (t.access) rows.push(`Access: ${escapeHtml(t.access)}`);
     if (t.backcountry === 'yes') rows.push('Backcountry / walk-in site');
     if (t.capacity) rows.push(`Capacity: ${escapeHtml(t.capacity)}`);
+    // Some campsites carry drinking_water directly as their own attribute
+    // instead of getting a separate water point nearby (verified live: ~12
+    // in a single Appalachian sample) — surface it here rather than losing
+    // it, since the water layer only ever looks for standalone points.
+    if (t.drinking_water === 'yes') rows.push('💧 Drinking water on site');
   } else if (layerKey === 'paidCamping') {
     rows.push(badgeHtml('muted', 'Fee required'));
     if (t.feeText) rows.push(escapeHtml(t.feeText));

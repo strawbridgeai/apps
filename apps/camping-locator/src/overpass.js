@@ -72,12 +72,27 @@ const QUERY_TIMEOUT_S = 25;
 // time to a search that's already going to fail.
 const FETCH_TIMEOUT_MS = 28000;
 
+// Mappers use several different tags for the same physical thing — verified
+// live against a real ~4 sq-degree Appalachian sample: amenity=drinking_water
+// alone covered 1028 points, but man_made=water_tap (108), natural=spring
+// +drinking_water=yes (19), man_made=water_well+drinking_water=yes (9), and
+// amenity=water_point (RV fill stations, 8) added another ~15% of real,
+// otherwise-invisible coverage in the same area. All still simple indexed
+// key=value/two-tag lookups, not regex, so this doesn't add meaningfully to
+// query cost the way the state-park search does.
+const WATER_CLAUSES = (b) =>
+  `node["amenity"="drinking_water"](${b});` +
+  `node["man_made"="water_tap"](${b});` +
+  `node["natural"="spring"]["drinking_water"="yes"](${b});` +
+  `node["man_made"="water_well"]["drinking_water"="yes"](${b});` +
+  `node["amenity"="water_point"](${b});`;
+
 function buildQuery(bounds, { includeWater, includeStateParks }) {
   const b = `${bounds.south},${bounds.west},${bounds.north},${bounds.east}`;
   return `[out:json][timeout:${QUERY_TIMEOUT_S}];(` +
     `node["tourism"="camp_site"](${b});` +
     `way["tourism"="camp_site"](${b});` +
-    (includeWater ? `node["amenity"="drinking_water"](${b});` : '') +
+    (includeWater ? WATER_CLAUSES(b) : '') +
     (includeStateParks
       ? `way["boundary"="protected_area"]["protection_title"~"State Park",i](${b});` +
         `relation["boundary"="protected_area"]["protection_title"~"State Park",i](${b});`
@@ -99,6 +114,17 @@ function isReliablyNotFree(tags) {
   );
 }
 
+// Mirrors the tag variants queried by WATER_CLAUSES above.
+function isWaterPoint(tags) {
+  return (
+    tags.amenity === 'drinking_water' ||
+    tags.man_made === 'water_tap' ||
+    (tags.natural === 'spring' && tags.drinking_water === 'yes') ||
+    (tags.man_made === 'water_well' && tags.drinking_water === 'yes') ||
+    tags.amenity === 'water_point'
+  );
+}
+
 // freeCamping and stateParks only — national parks and paid campgrounds
 // come from nps.js / ridb.js instead (see the module docstring above).
 function classify(elements) {
@@ -111,7 +137,7 @@ function classify(elements) {
 
     if (tags.tourism === 'camp_site') {
       if (!isReliablyNotFree(tags)) result.freeCamping.push(item);
-    } else if (tags.amenity === 'drinking_water') {
+    } else if (isWaterPoint(tags)) {
       result.water.push(item);
     } else if (tags.boundary === 'protected_area' && /state park/i.test(tags.protection_title || '')) {
       result.stateParks.push(item);
