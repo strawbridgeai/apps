@@ -14,7 +14,10 @@ export default function ShimmerText({ text = 'Text Shimmer', className }) {
         backgroundPosition: ['200% center', '-200% center'],
       }}
       className={cn(
-        'bg-[length:200%_100%] bg-gradient-to-r from-neutral-950 via-neutral-400 to-neutral-950 bg-clip-text font-bold text-transparent',
+        // Original Kokonut UI recipe shimmers dark-on-light (near-black via
+        // gray); inverted here to a warm gold-on-cream sweep so it's
+        // actually visible against this app's dark/glass theme.
+        'bg-[length:200%_100%] bg-gradient-to-r from-[#f2e9dd] via-[#c9a24b] to-[#f2e9dd] bg-clip-text font-bold text-transparent',
         className
       )}
       transition={{

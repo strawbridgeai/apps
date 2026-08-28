@@ -20,12 +20,15 @@ function badgeHtml(variant, text) {
 // as Water: its OSM query clause is the single most expensive part of a
 // search (a regex tag lookup, not a simple key=value match — see
 // overpass.js), so it's opt-in rather than part of every routine search.
+// Earth-tone marker palette (see style.css :root for the app-wide theme) —
+// still five visually distinct hues, just pulled from a warm/muted range
+// instead of the old saturated blue/green/gray set.
 export const LAYER_META = {
-  freeCamping: { label: 'Free / Dispersed Camping', color: '#16a34a', glyph: '⛺', defaultOn: true },
-  nationalParks: { label: 'National Parks', color: '#1d4ed8', glyph: '\u{1F332}', defaultOn: true },
-  stateParks: { label: 'State Parks', color: '#0d9488', glyph: '\u{1F332}', defaultOn: false },
-  water: { label: 'Potable Water', color: '#0ea5e9', glyph: '\u{1F4A7}', defaultOn: false },
-  paidCamping: { label: 'Paid Campgrounds', color: '#6b7280', glyph: '⛺', defaultOn: false },
+  freeCamping: { label: 'Free / Dispersed Camping', color: '#7fa05e', glyph: '⛺', defaultOn: true },
+  nationalParks: { label: 'National Parks', color: '#3f6b45', glyph: '\u{1F332}', defaultOn: true },
+  stateParks: { label: 'State Parks', color: '#4f8a86', glyph: '\u{1F332}', defaultOn: false },
+  water: { label: 'Potable Water', color: '#4a90a4', glyph: '\u{1F4A7}', defaultOn: false },
+  paidCamping: { label: 'Paid Campgrounds', color: '#a8825f', glyph: '⛺', defaultOn: false },
 };
 
 const PIN_SIZE = 38;

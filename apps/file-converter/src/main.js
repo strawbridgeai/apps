@@ -45,6 +45,7 @@ app.innerHTML = `
 
       <button class="btn-primary" id="convert-btn" disabled>Convert</button>
 
+      <div class="progress-track" id="progress-track"><div class="progress-indicator"></div></div>
       <div class="status" id="status"></div>
       <div class="hint">Files are converted on the server and never stored — the converted file downloads straight to your device.</div>
     </div>
@@ -56,6 +57,7 @@ const targetSelect = document.querySelector('#target-select');
 const uploadMount = document.querySelector('#upload-mount');
 const convertBtn = document.querySelector('#convert-btn');
 const statusEl = document.querySelector('#status');
+const progressTrack = document.querySelector('#progress-track');
 
 let catalog = null;
 let selectedFile = null;
@@ -178,6 +180,7 @@ convertBtn.addEventListener('click', async () => {
   const targetDef = targetsForSelection().find((t) => t.key === targetSelect.value);
   convertBtn.disabled = true;
   setStatus('Converting… this can take a few seconds, longer for documents.', 'info');
+  progressTrack.classList.add('visible');
 
   const form = new FormData();
   // category/sourceExt/target MUST be appended before the file — the
@@ -210,6 +213,7 @@ convertBtn.addEventListener('click', async () => {
     if (err instanceof TypeError) setCertHelp();
     else setStatus(err.message || 'Conversion failed.', 'error');
   } finally {
+    progressTrack.classList.remove('visible');
     updateConvertEnabled();
   }
 });

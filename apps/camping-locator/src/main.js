@@ -113,7 +113,7 @@ toggleContainer.addEventListener('change', (e) => {
 // working unchanged against the id — createRoot().render() completes
 // synchronously here since this tree has no Suspense/transitions.
 createRoot(document.querySelector('#search-btn-mount')).render(
-  createElement(GradientButton, { id: 'search-btn', type: 'button', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
+  createElement(GradientButton, { id: 'search-btn', type: 'button', variant: 'clay', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
 );
 
 const statusEl = document.querySelector('#status');
@@ -137,6 +137,17 @@ function setStatus(text, isError = false) {
 let searchGeneration = 0;
 let currentAbortController = null;
 
+// Per-request timeouts (fetchUtil.js) bound a single fetch, but
+// overpass.js's sequential tile x mirror-fallback loop can still stack
+// several of those back to back on a wide/unlucky search — worst case 4
+// tiles x 2 mirrors x FETCH_TIMEOUT_MS (28s) is ~3.5 minutes of "Searching…"
+// with no way out. This is the "stuck searching" a single request timeout
+// doesn't cover: a hard ceiling on the whole search, not just each request
+// inside it. Comfortably above a single tile's own worst case (both
+// mirrors timing out, ~56s) so a legitimately slow-but-working single-tile
+// search isn't cut off early, while still bounding a multi-tile pileup.
+const SEARCH_DEADLINE_MS = 60000;
+
 // silent=true is used for automatic triggers (load/pan/zoom) — an
 // over-budget area or a transient failure there is just a quiet hint, not
 // an alarming red error, since the user didn't explicitly ask for it.
@@ -152,6 +163,7 @@ async function runSearch({ silent = false } = {}) {
   currentAbortController = abortController;
   const myGeneration = ++searchGeneration;
   const isCurrent = () => myGeneration === searchGeneration;
+  const deadlineTimer = setTimeout(() => abortController.abort(), SEARCH_DEADLINE_MS);
 
   searchBtn.disabled = true;
   setStatus('Searching…');
@@ -196,8 +208,17 @@ async function runSearch({ silent = false } = {}) {
   } catch (err) {
     if (!isCurrent()) return;
     console.error(err);
-    setStatus('Search failed — the data source may be busy. Try again in a moment.', !silent);
+    // Reaching here with isCurrent() still true rules out "superseded by a
+    // newer search" (that always bumps the generation first) — an
+    // AbortError at this point can only be the deadline timer above.
+    setStatus(
+      err?.name === 'AbortError'
+        ? 'Search timed out — the data source is slow right now. Try again in a moment.'
+        : 'Search failed — the data source may be busy. Try again in a moment.',
+      !silent,
+    );
   } finally {
+    clearTimeout(deadlineTimer);
     if (isCurrent()) searchBtn.disabled = false;
   }
 }

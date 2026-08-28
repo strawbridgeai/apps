@@ -5,20 +5,40 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
+/* Earth-tone / dark-accent / glass design language, shared (duplicated,
+   not imported — these are three independent Vite apps with no shared
+   package) across camping-locator, file-converter, and pdf-viewer.
+   Terracotta + moss as the two accents over a deep espresso base; panels
+   are translucent + backdrop-blurred rather than flat fills, inspired by
+   Kokonut UI's Liquid Glass Card (github.com/kokonut-labs/kokonutui,
+   components/kokonutui/liquid-glass-card.tsx) — simplified to a plain
+   background+blur+layered-shadow recipe here since the original's SVG
+   feTurbulence displacement filter is a lot of runtime cost for a subtle
+   effect on a map-heavy page. */
 :root {
-  --bg: #f5f6f8;
-  --panel: #ffffff;
-  --border: #dde1e6;
-  --text: #1c1f24;
-  --text-dim: #6b7280;
-  --accent: #2563eb;
-  --accent-dim: #1d4ed8;
-  --danger: #dc2626;
-  --danger-bg: #fef2f2;
-  --success: #16a34a;
-  --success-bg: #f0fdf4;
+  --bg: #1a1512;
+  --bg-grad: radial-gradient(ellipse at top, #241c16 0%, #14100d 70%);
+  --panel: rgba(43, 35, 28, 0.62);
+  --panel-solid: #241d18;
+  --border: rgba(232, 213, 188, 0.14);
+  --text: #f2e9dd;
+  --text-dim: #b6a793;
+  --accent: #c96f43;
+  --accent-dim: #a85a34;
+  --accent-2: #8a9a6b;
+  --gold: #c9a24b;
+  --danger: #c1583f;
+  --danger-bg: rgba(193, 88, 63, 0.16);
+  --success: #7fa05e;
+  --success-bg: rgba(127, 160, 94, 0.16);
+  --glass-blur: blur(16px);
+  --glass-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.35),
+    0 12px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -27,8 +47,15 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--bg-grad), var(--bg);
   color: var(--text);
+}
+
+.glass-panel {
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
 }
 
 .app-shell {
@@ -39,9 +66,14 @@ body {
 
 .app-header {
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
   padding: 14px 20px;
   flex: none;
+  position: relative;
+  z-index: 20;
 }
 
 .app-header h1 {
@@ -70,7 +102,7 @@ body {
   color: var(--text-dim);
   text-decoration: none;
 }
-.home-btn:hover { background: #f0f1f3; color: var(--text); border-color: var(--accent); }
+.home-btn:hover { background: rgba(201, 111, 67, 0.14); color: var(--text); border-color: var(--accent); }
 .home-btn svg { width: 18px; height: 18px; }
 
 .ghost-btn {
@@ -82,8 +114,9 @@ body {
   font-size: 0.85rem;
   color: var(--text);
   cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
 }
-.ghost-btn:hover { border-color: var(--accent); color: var(--accent-dim); }
+.ghost-btn:hover { border-color: var(--accent); color: var(--gold); background: rgba(201, 111, 67, 0.1); }
 
 .toolbar {
   flex: none;
@@ -93,7 +126,11 @@ body {
   gap: 12px 20px;
   padding: 10px 20px;
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 15;
 }
 
 .layer-toggles {
@@ -106,18 +143,59 @@ body {
 .layer-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-size: 0.85rem;
   color: var(--text-dim);
   cursor: pointer;
   user-select: none;
 }
-.layer-toggle input { cursor: pointer; }
+
+/* Animated pill switch, styling adapted from Watermelon UI's Switch
+   (https://ui.watermelon.sh, github.com/WatermelonCorp/watermelon-platform,
+   src/components/ui/switch.tsx) — that component wraps a radix-ui
+   primitive; reimplemented here as plain CSS on the existing native
+   checkbox (same track/thumb geometry and transition) rather than pulling
+   in radix-ui for one control, matching how badge.jsx/button.jsx were
+   already simplified for this app. */
+.layer-toggle input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 32px;
+  height: 18px;
+  margin: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+.layer-toggle input[type="checkbox"]::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.layer-toggle input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.layer-toggle input[type="checkbox"]:checked::after {
+  transform: translateX(14px);
+  background: #fff;
+}
 .layer-toggle .dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   display: inline-block;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
 }
 
 .status {
@@ -144,10 +222,12 @@ body {
   font-size: 0.75rem;
   color: var(--text-dim);
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-top: 1px solid var(--border);
   text-align: center;
 }
-.disclaimer a { color: var(--text-dim); }
+.disclaimer a { color: var(--gold); }
 
 /* --- Map markers, hover tooltip --- */
 .camp-marker-dot {
@@ -157,20 +237,20 @@ body {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  border: 3px solid #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  border: 3px solid rgba(242, 233, 221, 0.9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
   font-size: 20px;
   line-height: 1;
   cursor: pointer;
 }
 
 .leaflet-tooltip.camp-tooltip-wrap {
-  background: var(--text);
-  color: #fff;
-  border: none;
+  background: var(--panel-solid);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
 }
 .leaflet-tooltip.camp-tooltip-wrap::before { display: none; }
 .camp-tooltip { font-size: 0.8rem; line-height: 1.4; }
@@ -188,12 +268,14 @@ body {
   width: 340px;
   max-width: 85vw;
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-left: 1px solid var(--border);
-  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.12);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.45), inset 1px 0 0 rgba(255, 255, 255, 0.05);
   padding: 20px;
   overflow-y: auto;
   transform: translateX(100%);
-  transition: transform 0.2s ease;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   z-index: 1000;
 }
 .detail-panel.open { transform: translateX(0); }
@@ -206,11 +288,12 @@ body {
   height: 28px;
   border-radius: 50%;
   border: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--panel-solid);
   color: var(--text-dim);
   font-size: 1.1rem;
   line-height: 1;
   cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
 .panel-close:hover { color: var(--text); border-color: var(--accent); }
 
@@ -248,9 +331,11 @@ body {
   font-weight: 600;
   font-size: 0.88rem;
   text-decoration: none;
+  transition: background 0.2s ease, transform 0.15s ease;
 }
-.panel-link-btn:hover { background: var(--accent-dim); }
+.panel-link-btn:hover { background: var(--accent-dim); transform: translateY(-1px); }
 .panel-extra-links { display: flex; gap: 14px; font-size: 0.82rem; }
+.panel-extra-links a { color: var(--accent-2); }
 
 @media (max-width: 640px) {
   .header-inner h1 { font-size: 1rem; }

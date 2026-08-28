@@ -6,25 +6,45 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
+/* Earth-tone / dark-accent / glass theme — see camping-locator/src/style.css
+   for the full rationale; same token set duplicated here since these are
+   independent Vite apps with no shared package. */
 :root {
-  --bg: #f5f6f8;
-  --panel: #ffffff;
-  --border: #dde1e6;
-  --text: #1c1f24;
-  --text-dim: #6b7280;
-  --accent: #2563eb;
-  --accent-dim: #1d4ed8;
-  --danger: #dc2626;
+  --bg: #1a1512;
+  --bg-grad: radial-gradient(ellipse at top, #241c16 0%, #14100d 70%);
+  --panel: rgba(43, 35, 28, 0.62);
+  --panel-solid: #241d18;
+  --border: rgba(232, 213, 188, 0.14);
+  --text: #f2e9dd;
+  --text-dim: #b6a793;
+  --accent: #c96f43;
+  --accent-dim: #a85a34;
+  --accent-2: #8a9a6b;
+  --gold: #c9a24b;
+  --danger: #c1583f;
+  --glass-blur: blur(16px);
+  --glass-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.35),
+    0 12px 32px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
+  background: var(--bg-grad), var(--bg);
   color: var(--text);
+}
+
+.glass-panel {
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-shadow);
 }
 
 .app-shell {
@@ -35,7 +55,10 @@ body {
 
 .app-header {
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-bottom: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
   padding: 12px 20px;
   display: flex;
   align-items: center;
@@ -70,7 +93,7 @@ body {
   color: var(--text-dim);
   text-decoration: none;
 }
-.home-btn:hover { background: #f0f1f3; color: var(--text); border-color: var(--accent); }
+.home-btn:hover { background: rgba(201, 111, 67, 0.14); color: var(--text); border-color: var(--accent); }
 .home-btn svg { width: 18px; height: 18px; }
 
 .header-actions {
@@ -99,6 +122,8 @@ body {
   width: 260px;
   overflow-y: auto;
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border-right: 1px solid var(--border);
   padding: 14px;
   display: flex;
@@ -141,7 +166,7 @@ body {
 }
 
 .sidebar-item {
-  background: var(--bg);
+  background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
@@ -149,16 +174,18 @@ body {
   flex-direction: column;
   gap: 6px;
   cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
 .sidebar-item:hover {
   border-color: var(--accent);
+  background: rgba(201, 111, 67, 0.08);
 }
 
 .sidebar-item.active {
-  background: var(--panel);
+  background: rgba(201, 111, 67, 0.12);
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 0 0 2px rgba(201, 111, 67, 0.25);
 }
 
 .sidebar-item.drag-ghost {
@@ -169,7 +196,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #eceef1;
+  background: #0f0c0a;
   border-radius: 4px;
   overflow: hidden;
   min-height: 120px;
@@ -178,7 +205,7 @@ body {
 .thumb-wrap canvas {
   max-width: 100%;
   display: block;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .page-label {
@@ -218,26 +245,29 @@ button {
 }
 
 .btn-sm {
-  background: var(--panel);
+  background: var(--panel-solid);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 5px 10px;
   font-size: 0.78rem;
   color: var(--text);
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
-.btn-sm:hover { background: #f0f1f3; }
+.btn-sm:hover { background: rgba(201, 111, 67, 0.14); border-color: var(--accent); }
 .btn-sm.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .btn-danger {
   color: var(--danger);
-  border-color: #f3c2c2;
+  border-color: rgba(193, 88, 63, 0.4);
 }
 
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 17, 21, 0.55);
+  background: rgba(10, 8, 6, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -247,7 +277,9 @@ button {
 }
 
 .modal {
-  background: var(--panel);
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
   border-radius: 10px;
   padding: 16px 20px 24px;
   max-width: 900px;
@@ -291,9 +323,11 @@ button {
 .tool-tray {
   pointer-events: auto;
   background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--border);
   border-radius: 999px;
-  box-shadow: 0 8px 24px rgba(15, 17, 21, 0.18);
+  box-shadow: var(--glass-shadow);
   padding: 8px 14px;
   display: flex;
   align-items: center;
@@ -311,7 +345,7 @@ button {
   font-weight: 500;
   color: var(--text);
 }
-.tray-btn:hover { background: #f0f1f3; }
+.tray-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .tray-btn.active { background: var(--accent); color: #fff; }
 
 .tray-swatches { display: none; gap: 6px; align-items: center; padding-left: 4px; border-left: 1px solid var(--border); }
@@ -415,7 +449,7 @@ button {
   pointer-events: auto;
 }
 .text-overlay span::selection {
-  background: rgba(37, 99, 235, 0.35);
+  background: rgba(201, 111, 67, 0.4);
 }
 .text-overlay.tool-active span {
   pointer-events: none;
@@ -454,6 +488,8 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   resize: vertical;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 
 .field {
@@ -471,6 +507,8 @@ button {
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 0.9rem;
+  background: var(--panel-solid);
+  color: var(--text);
 }
 .field input[type="range"] {
   width: 100%;

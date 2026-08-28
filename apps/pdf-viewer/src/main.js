@@ -2,6 +2,7 @@ import './style.css';
 import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
 import ShimmerText from './components/ShimmerText.jsx';
+import { Badge } from './components/ui/badge.jsx';
 import { loadPdf } from './pdf/pdfSetup.js';
 import { state, addDoc } from './state.js';
 import { renderSidebar } from './ui/sidebar.js';
@@ -22,6 +23,7 @@ app.innerHTML = `
           </svg>
         </a>
         <div id="title-mount"></div>
+        <div id="page-count-mount"></div>
       </div>
       <div class="header-actions">
         <label class="btn-primary file-btn">
@@ -43,6 +45,16 @@ app.innerHTML = `
 `;
 
 createRoot(document.querySelector('#title-mount')).render(createElement(ShimmerText, { text: 'PDF Toolkit' }));
+
+const pageCountRoot = createRoot(document.querySelector('#page-count-mount'));
+function renderPageCount() {
+  const n = state.pages.length;
+  if (n === 0) {
+    pageCountRoot.render(null);
+    return;
+  }
+  pageCountRoot.render(createElement(Badge, { variant: 'muted' }, `${n} page${n === 1 ? '' : 's'}`));
+}
 
 const sidebarEl = document.querySelector('#sidebar');
 const mainViewEl = document.querySelector('#main-view');
@@ -70,6 +82,7 @@ function refreshAll() {
   renderSidebar(sidebarEl, { onSelectionChange: updateExtractLabel, onActivate });
   refreshMainView();
   updateExtractLabel();
+  renderPageCount();
 }
 
 function updateExtractLabel() {
