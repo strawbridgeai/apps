@@ -2,6 +2,7 @@ import './style.css';
 import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
 import FileUpload from './components/FileUpload.jsx';
+import ShimmerText from './components/ShimmerText.jsx';
 
 const API_BASE = `${location.protocol}//${location.hostname}:2011`;
 
@@ -19,7 +20,7 @@ app.innerHTML = `
             <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"></path>
           </svg>
         </a>
-        <h1>File Converter</h1>
+        <div id="title-mount"></div>
       </div>
     </header>
     <div class="card">
@@ -51,6 +52,8 @@ app.innerHTML = `
     </div>
   </div>
 `;
+
+createRoot(document.querySelector('#title-mount')).render(createElement(ShimmerText, { text: 'File Converter' }));
 
 const categorySelect = document.querySelector('#category-select');
 const targetSelect = document.querySelector('#target-select');

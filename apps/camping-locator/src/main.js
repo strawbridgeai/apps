@@ -1,7 +1,7 @@
 import './style.css';
 import { createRoot } from 'react-dom/client';
 import { createElement } from 'react';
-import GradientButton from './components/GradientButton.jsx';
+import ShimmerText from './components/ShimmerText.jsx';
 import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
@@ -38,14 +38,14 @@ app.innerHTML = `
             <path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"></path>
           </svg>
         </a>
-        <h1>Camp Finder</h1>
+        <div id="title-mount"></div>
         <button id="locate-btn" class="ghost-btn" type="button" title="Center on my location">📍 My location</button>
       </div>
     </header>
 
     <div class="toolbar">
       <div class="layer-toggles" id="layer-toggles"></div>
-      <div id="search-btn-mount" class="shrink-0"></div>
+      <button id="search-btn" class="btn-primary shrink-0" type="button">Search this area</button>
       <span id="status" class="status" role="status"></span>
     </div>
 
@@ -58,9 +58,11 @@ app.innerHTML = `
     </div>
 
     <p class="disclaimer">
-      Data from <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors —
-      crowdsourced, not guaranteed accurate or current. Always confirm fee, access, and road conditions with the local
-      land manager (BLM / USFS / NPS / state park office) before you go.
+      Data comes from a mix of official sources (National Park Service, Recreation.gov) and crowdsourced
+      <a href="https://www.openstreetmap.org" target="_blank" rel="noopener">OpenStreetMap</a> contributors — even the
+      official sources can be outdated or incomplete, so nothing here is guaranteed accurate or current. Please always
+      double-check fee, access, and road conditions with the local land manager (BLM / USFS / NPS / state park office)
+      before you go somewhere.
     </p>
   </div>
 `;
@@ -113,27 +115,12 @@ toggleContainer.addEventListener('change', (e) => {
   }
 });
 
-// GradientButton renders an actual <button id="search-btn">, so all the
-// existing plain-DOM code below (disabled toggling, click wiring) keeps
-// working unchanged against the id.
-createRoot(document.querySelector('#search-btn-mount')).render(
-  createElement(GradientButton, { id: 'search-btn', type: 'button', variant: 'emerald', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
-);
+createRoot(document.querySelector('#title-mount')).render(createElement(ShimmerText, { text: 'Camp Finder' }));
+
+const searchBtn = document.querySelector('#search-btn');
+searchBtn.addEventListener('click', () => runSearch({ silent: false }));
 
 const statusEl = document.querySelector('#status');
-// NOT captured once into a const: verified live (headless browser) that
-// createRoot().render() above does not reliably commit #search-btn to the
-// DOM synchronously, so a single querySelector('#search-btn') read here
-// returned null and stayed null for the rest of the session (every
-// subsequent runSearch() call then threw on `searchBtn.disabled = true`
-// before it ever reached setStatus('Searching…') or fired a single fetch —
-// silently killing every search after the page's first, whole-country
-// auto-search, which is what left "Zoom in a bit more…" stuck on screen
-// forever regardless of actual zoom level). Querying fresh on every call
-// is cheap and always reflects the real, currently-mounted element.
-function getSearchBtn() {
-  return document.querySelector('#search-btn');
-}
 
 function setStatus(text, isError = false) {
   statusEl.textContent = text;
@@ -181,8 +168,7 @@ async function runSearch({ silent = false } = {}) {
   const isCurrent = () => myGeneration === searchGeneration;
   const deadlineTimer = setTimeout(() => abortController.abort(), SEARCH_DEADLINE_MS);
 
-  const searchBtn = getSearchBtn();
-  if (searchBtn) searchBtn.disabled = true;
+  searchBtn.disabled = true;
   setStatus('Searching…');
   try {
     const wantPaidCamping = toggleChecked('paidCamping');
@@ -236,11 +222,9 @@ async function runSearch({ silent = false } = {}) {
     );
   } finally {
     clearTimeout(deadlineTimer);
-    if (isCurrent() && searchBtn) searchBtn.disabled = false;
+    if (isCurrent()) searchBtn.disabled = false;
   }
 }
-
-// click wiring is the onClick prop passed to GradientButton above
 
 // Auto-search as the map settles after a pan/zoom, so results load without
 // ever needing to press the button.
