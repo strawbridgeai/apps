@@ -120,12 +120,12 @@ export default function FileUpload({
 
   return (
     <div className={cn('relative mx-auto w-full', className || '')}>
-      <div className="group relative w-full rounded-xl bg-white/5 p-0.5 ring-1 ring-white/10 backdrop-blur-md">
-        <div className="absolute inset-x-0 -top-px h-px w-full bg-gradient-to-r from-transparent via-orange-400/30 to-transparent" />
-        <div className="relative w-full rounded-[10px] bg-black/10 p-1.5">
-          <div className={cn('relative mx-auto w-full overflow-hidden rounded-lg border border-white/10 bg-stone-950/40', error ? 'border-red-500/50' : '')}>
+      <div className="group relative w-full rounded-xl bg-black/[0.03] p-0.5 ring-1 ring-black/10 backdrop-blur-md">
+        <div className="absolute inset-x-0 -top-px h-px w-full bg-gradient-to-r from-transparent via-[#3f8f45]/30 to-transparent" />
+        <div className="relative w-full rounded-[10px] bg-black/[0.04] p-1.5">
+          <div className={cn('relative mx-auto w-full overflow-hidden rounded-lg border border-black/10 bg-white/70', error ? 'border-red-500/50' : '')}>
             <div className={cn('absolute inset-0 transition-opacity duration-300', status === 'dragging' ? 'opacity-100' : 'opacity-0')}>
-              <div className="absolute inset-[10%] animate-pulse rounded-lg bg-orange-400/10" />
+              <div className="absolute inset-[10%] animate-pulse rounded-lg bg-[#3f8f45]/10" />
             </div>
 
             <div className="relative min-h-[160px]">
@@ -138,13 +138,13 @@ export default function FileUpload({
                     initial={{ opacity: 0, y: 10 }}
                     key="picked"
                   >
-                    <UploadCloud className="h-8 w-8 text-orange-400" />
+                    <UploadCloud className="h-8 w-8 text-[#3f8f45]" />
                     <div className="space-y-1 text-center">
-                      <h3 className="max-w-[220px] truncate font-semibold text-stone-100 text-sm">{file.name}</h3>
-                      <p className="text-stone-400 text-xs">{formatBytes(file.size)}</p>
+                      <h3 className="max-w-[220px] truncate font-semibold text-[#1b2a18] text-sm">{file.name}</h3>
+                      <p className="text-[#52624a] text-xs">{formatBytes(file.size)}</p>
                     </div>
                     <button
-                      className="flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 font-medium text-stone-200 text-xs transition-colors hover:bg-white/15"
+                      className="flex items-center gap-1.5 rounded-lg bg-black/5 px-3 py-1.5 font-medium text-[#1b2a18] text-xs transition-colors hover:bg-black/10"
                       onClick={resetState}
                       type="button"
                     >
@@ -164,11 +164,11 @@ export default function FileUpload({
                     onDrop={handleDrop}
                     transition={{ duration: 0.2 }}
                   >
-                    <UploadCloud className="mb-3 h-8 w-8 text-stone-400" />
-                    <h3 className="mb-1 font-semibold text-stone-100 text-sm">Drag and drop or</h3>
-                    <p className="mb-3 text-stone-400 text-xs">{hintText}</p>
+                    <UploadCloud className="mb-3 h-8 w-8 text-[#52624a]" />
+                    <h3 className="mb-1 font-semibold text-[#1b2a18] text-sm">Drag and drop or</h3>
+                    <p className="mb-3 text-[#52624a] text-xs">{hintText}</p>
                     <button
-                      className="group flex items-center gap-2 rounded-lg bg-orange-700/80 px-4 py-2 font-semibold text-white text-sm transition-colors hover:bg-orange-700"
+                      className="group flex items-center gap-2 rounded-lg bg-[#3f8f45] px-4 py-2 font-semibold text-white text-sm transition-colors hover:bg-[#2f6f36]"
                       onClick={triggerFileInput}
                       type="button"
                     >
