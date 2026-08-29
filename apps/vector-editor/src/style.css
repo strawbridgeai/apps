@@ -246,25 +246,42 @@ body {
   overflow: hidden;
 }
 
-.panel-tabs {
+/* Segmented-control tabs (src/components/ui/tabs.jsx): a bordered pill row
+   with a motion layoutId indicator sliding behind the active label, instead
+   of a flat underline — same visual family as the admin dashboard's tabs. */
+.panel-tab-list {
   display: flex;
+  gap: 5px;
+  padding: 10px 10px 9px;
   border-bottom: 1px solid var(--border);
   flex: none;
 }
-.panel-tab {
+.panel-tab-trigger {
+  position: relative;
   flex: 1;
-  padding: 10px;
+  padding: 7px 8px;
   text-align: center;
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--text-dim);
-  border-bottom: 2px solid transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(30, 50, 25, 0.02);
+  overflow: hidden;
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.panel-tab.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
+.panel-tab-trigger:hover { color: var(--text); border-color: rgba(var(--accent-rgb), 0.4); }
+.panel-tab-trigger.active { color: #fff; border-color: transparent; }
+.panel-tab-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+  box-shadow: 0 3px 12px rgba(var(--accent-rgb), 0.35);
 }
+.panel-tab-label { position: relative; z-index: 1; }
 
 .panel-scroll {
   flex: 1;
@@ -285,6 +302,13 @@ body {
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+  /* Long single-word labels (e.g. "Background") have no space to wrap on,
+     so without this they silently overflow the fixed-width box and sit on
+     top of whatever's next in the row (the color swatch) instead of
+     wrapping or shrinking. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .field-row input[type="text"],
 .field-row input[type="number"],
@@ -354,6 +378,39 @@ body {
 
 /* ---------- layers list ---------- */
 
+.layers-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Bottom toolbar strip for the layers list, GIMP-style: a fixed horizontal
+   bar under the scrollable list holding the "add layer" action (and any
+   future duplicate/delete controls) rather than burying it in a menu. */
+.layers-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 6px;
+  border-top: 1px solid var(--border);
+  background: rgba(30, 50, 25, 0.03);
+}
+.layers-toolbar button {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--text-dim);
+}
+.layers-toolbar button:hover { color: #fff; background: var(--accent); }
+.layers-toolbar button svg { width: 15px; height: 15px; }
+
 .layer-row {
   display: flex;
   align-items: center;
@@ -415,6 +472,54 @@ body {
 .btn-sm:hover { color: var(--text); border-color: var(--accent); }
 .btn-sm:disabled { opacity: 0.35; pointer-events: none; }
 .btn-sm svg { width: 14px; height: 14px; }
+
+/* "Open" (upload) button — gradient hairline ring + icon lift on hover,
+   adapted from Kokonut UI's file-upload component (kokonutui.com/docs/
+   components/file-upload) down to toolbar-button scale: its dropzone-sized
+   gradient border and hover-scale icon, without the full drop-zone chrome. */
+.btn-upload {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 6px 11px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  isolation: isolate;
+}
+.btn-upload::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, transparent, rgba(var(--accent-2-rgb), 0.65), transparent);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+.btn-upload:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 4px 14px rgba(var(--accent-2-rgb), 0.18);
+}
+.btn-upload:hover::before { opacity: 1; }
+.btn-upload:disabled { opacity: 0.4; pointer-events: none; }
+.btn-upload svg {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.btn-upload:hover svg { transform: scale(1.15) translateY(-1px); }
 
 .btn-primary {
   display: inline-flex;
@@ -515,6 +620,18 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;
+}
+
+.export-slider-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.export-slider-row span:last-child {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .dropzone-active::after {

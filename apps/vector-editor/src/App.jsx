@@ -16,10 +16,23 @@ import CanvasStage from './components/CanvasStage.jsx';
 import PropertiesPanel from './components/PropertiesPanel.jsx';
 import LayersPanel from './components/LayersPanel.jsx';
 import NewDocumentModal from './components/NewDocumentModal.jsx';
+import { TabList, TabTrigger } from './components/ui/tabs.jsx';
 import { downloadSvg, downloadPng, downloadJpeg, downloadPdf, downloadProjectJson } from './lib/exporters.js';
 import { isImageFile, isProjectFile, imageFileToObject, parseProjectFile } from './lib/importers.js';
+import { clamp } from './lib/utils.js';
 
 const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
+// Hard ceiling on the longer exported edge, in px — canvases past this get
+// slow/crash-prone on modest hardware, so the scale slider's own max is
+// derived from it per-document instead of exposing an unbounded scale.
+const MAX_EXPORT_EDGE_PX = 6000;
+const FORMATS = [
+  ['svg', 'SVG (vector)'],
+  ['png', 'PNG (transparent)'],
+  ['jpeg', 'JPEG'],
+  ['pdf', 'PDF'],
+  ['project', 'Project file (.json)'],
+];
 
 export default function App() {
   const {
@@ -42,6 +55,8 @@ export default function App() {
   const [tab, setTab] = useState('properties');
   const [newDocOpen, setNewDocOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportScale, setExportScale] = useState(2);
+  const [exportQuality, setExportQuality] = useState(0.92);
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -51,16 +66,24 @@ export default function App() {
     setZoom(ZOOM_STEPS[nextIdx]);
   };
 
+  // Derived per-document so the slider itself can never express a size that
+  // would blow past MAX_EXPORT_EDGE_PX — the "validated" part isn't a check
+  // after the fact, it's the control's own bounds.
+  const maxExportScale = Math.max(1, Math.floor((MAX_EXPORT_EDGE_PX / Math.max(doc.width, doc.height)) * 4) / 4);
+  const scale = clamp(exportScale, 0.5, maxExportScale);
+  const exportW = Math.round(doc.width * scale);
+  const exportH = Math.round(doc.height * scale);
+
   const runExport = async (kind) => {
-    setExportOpen(false);
     const svg = docSvgRef.current;
     if (!svg) return;
     try {
       if (kind === 'svg') downloadSvg(svg, doc);
-      else if (kind === 'png') await downloadPng(svg, doc);
-      else if (kind === 'jpeg') await downloadJpeg(svg, doc);
-      else if (kind === 'pdf') await downloadPdf(svg, doc);
+      else if (kind === 'png') await downloadPng(svg, doc, { scale });
+      else if (kind === 'jpeg') await downloadJpeg(svg, doc, { scale, quality: exportQuality });
+      else if (kind === 'pdf') await downloadPdf(svg, doc, { scale });
       else if (kind === 'project') downloadProjectJson(doc, objects, groups);
+      setExportOpen(false);
     } catch {
       showToast('Export failed');
     }
@@ -123,7 +146,7 @@ export default function App() {
         <button type="button" className="btn-sm" onClick={() => setNewDocOpen(true)}>
           <FilePlus2 /> New
         </button>
-        <button type="button" className="btn-sm" onClick={() => fileInputRef.current?.click()} disabled={busy}>
+        <button type="button" className="btn-upload" onClick={() => fileInputRef.current?.click()} disabled={busy}>
           <FolderOpen /> {busy ? 'Loading…' : 'Open'}
         </button>
         <input
@@ -147,7 +170,6 @@ export default function App() {
             <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setExportOpen(false)} />
               <div
-                className="glass-panel"
                 style={{
                   position: 'absolute',
                   top: '110%',
@@ -155,37 +177,63 @@ export default function App() {
                   zIndex: 91,
                   borderRadius: 10,
                   border: '1px solid var(--border)',
+                  boxShadow: 'var(--glass-shadow)',
                   overflow: 'hidden',
-                  minWidth: 160,
+                  width: 240,
+                  background: 'var(--panel-solid)',
                 }}
               >
-                {[
-                  ['svg', 'SVG (vector)'],
-                  ['png', 'PNG (transparent)'],
-                  ['jpeg', 'JPEG'],
-                  ['pdf', 'PDF'],
-                  ['project', 'Project file (.json)'],
-                ].map(([kind, label]) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => runExport(kind)}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '9px 12px',
-                      fontSize: '0.8rem',
-                      color: 'var(--text)',
-                      background: 'none',
-                      border: 'none',
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
-                    onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                  >
-                    {label}
-                  </button>
-                ))}
+                <div style={{ padding: '10px 12px 4px' }}>
+                  <div className="export-slider-row">
+                    <span>Pixel size</span>
+                    <span>{scale}× · {exportW}×{exportH}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.5}
+                    max={maxExportScale}
+                    step={0.25}
+                    value={scale}
+                    onChange={(e) => setExportScale(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                  <div className="export-slider-row" style={{ marginTop: 10 }}>
+                    <span>JPEG quality</span>
+                    <span>{Math.round(exportQuality * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={1}
+                    step={0.01}
+                    value={exportQuality}
+                    onChange={(e) => setExportQuality(Number(e.target.value))}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div style={{ borderTop: '1px solid var(--border)' }}>
+                  {FORMATS.map(([kind, label]) => (
+                    <button
+                      key={kind}
+                      type="button"
+                      onClick={() => runExport(kind)}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '9px 12px',
+                        fontSize: '0.8rem',
+                        color: 'var(--text)',
+                        background: 'none',
+                        border: 'none',
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           )}
@@ -196,14 +244,14 @@ export default function App() {
         <ToolRail />
         <CanvasStage />
         <div className="right-panel">
-          <div className="panel-tabs">
-            <button type="button" className={`panel-tab ${tab === 'properties' ? 'active' : ''}`} onClick={() => setTab('properties')}>
+          <TabList>
+            <TabTrigger active={tab === 'properties'} onClick={() => setTab('properties')}>
               Properties
-            </button>
-            <button type="button" className={`panel-tab ${tab === 'layers' ? 'active' : ''}`} onClick={() => setTab('layers')}>
+            </TabTrigger>
+            <TabTrigger active={tab === 'layers'} onClick={() => setTab('layers')}>
               Layers ({objects.length})
-            </button>
-          </div>
+            </TabTrigger>
+          </TabList>
           {tab === 'properties' ? <PropertiesPanel /> : <LayersPanel />}
         </div>
       </div>

@@ -17,28 +17,10 @@ import {
   Wand2,
 } from 'lucide-react';
 import { useDoc } from '../state/DocumentContext.jsx';
+import { Field, RangeField } from './ui/field.jsx';
 
 const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge'];
 const FONTS = ['system-ui, sans-serif', 'Georgia, serif', '"Courier New", monospace', 'Impact, sans-serif'];
-
-function Field({ label, children }) {
-  return (
-    <div className="field-row">
-      <label>{label}</label>
-      {children}
-    </div>
-  );
-}
-
-function RangeField({ label, value, min, max, step = 1, onChange, format = (v) => v }) {
-  return (
-    <div className="field-row">
-      <label>{label}</label>
-      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} />
-      <span className="field-val">{format(value)}</span>
-    </div>
-  );
-}
 
 export default function PropertiesPanel() {
   const {
