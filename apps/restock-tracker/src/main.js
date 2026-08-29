@@ -20,6 +20,23 @@ function haversineMiles(lat1, lon1, lat2, lon2) {
   return EARTH_RADIUS_MILES * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Sets currently printing and actually being restocked at Best Buy/Target as
+// of 2026-08-29 — not the full historical catalog. Pokemon TCG cycles a new
+// main set every ~2 months and stops restocking older ones (Prismatic
+// Evolutions is the one long-running exception, kept in near-constant
+// reprint due to demand), so this list needs a manual refresh every couple
+// months as new sets replace old ones on shelves. `query` is what's actually
+// sent to each provider's search endpoint (prefixed with "Pokemon" so Best
+// Buy's cross-TCG search doesn't return unrelated card games).
+const ACTIVE_SETS = [
+  { label: 'Scarlet & Violet: Prismatic Evolutions', query: 'Pokemon Prismatic Evolutions' },
+  { label: 'Mega Evolution: Phantasmal Flames', query: 'Pokemon Mega Evolution Phantasmal Flames' },
+  { label: 'Mega Evolution: Ascended Heroes', query: 'Pokemon Mega Evolution Ascended Heroes' },
+  { label: 'Mega Evolution: Perfect Order', query: 'Pokemon Mega Evolution Perfect Order' },
+  { label: 'Mega Evolution: Chaos Rising', query: 'Pokemon Mega Evolution Chaos Rising' },
+  { label: 'Mega Evolution: Pitch Black', query: 'Pokemon Mega Evolution Pitch Black' },
+];
+
 const app = document.querySelector('#app');
 app.innerHTML = `
   <div class="app-shell">
@@ -43,7 +60,10 @@ app.innerHTML = `
 
     <div class="toolbar" id="map-toolbar" style="position:relative;">
       <div class="search-row">
-        <input type="text" id="search-input" placeholder="Search Best Buy + Target for a product to track…" autocomplete="off">
+        <select id="search-input">
+          <option value="" selected disabled>Check stock for a set…</option>
+          ${ACTIVE_SETS.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
+        </select>
       </div>
       <div class="distance-slider">
         Within <strong id="radius-label">50</strong> mi
@@ -155,62 +175,65 @@ async function loadProducts() {
   renderMarkers();
 }
 
-// --- Product search ---
+// --- Product search (dropdown of currently-printing sets, not free text —
+// typing out exact set/product names was error-prone and easy to mismatch
+// against what's actually on shelves right now) ---
 const searchInput = document.querySelector('#search-input');
 const searchResultsEl = document.querySelector('#search-results');
-let searchDebounce = null;
 
-searchInput.addEventListener('input', () => {
-  clearTimeout(searchDebounce);
-  const q = searchInput.value.trim();
-  if (!q) {
+searchInput.addEventListener('change', async () => {
+  const set = ACTIVE_SETS[Number(searchInput.value)];
+  if (!set) return;
+  searchResultsEl.hidden = false;
+  searchResultsEl.innerHTML = '<div class="search-result-item"><span>Checking Best Buy + Target…</span></div>';
+  const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(set.query)}`);
+  const data = await res.json();
+  const results = data.results || [];
+  searchResultsEl.hidden = results.length === 0;
+  if (results.length === 0) {
     searchResultsEl.hidden = true;
+    alert(`No ${set.label} products found at Best Buy or Target right now.`);
+    searchInput.value = '';
     return;
   }
-  searchDebounce = setTimeout(async () => {
-    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    const results = data.results || [];
-    searchResultsEl.hidden = results.length === 0;
-    searchResultsEl.innerHTML = results
-      .map(
-        (r, i) => `
-        <div class="search-result-item">
-          <span><span class="retailer-tag ${r.retailer}">${RETAILER_META[r.retailer]?.label || r.retailer}</span> ${escapeHtml(r.name)}</span>
-          <button class="btn-ghost" data-track="${i}">Track</button>
-        </div>`
-      )
-      .join('');
-    searchResultsEl.querySelectorAll('[data-track]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const r = results[Number(btn.dataset.track)];
-        if (!userLocation) {
-          alert('Click "My location" first so this can find nearby stores.');
-          return;
-        }
-        const res2 = await fetch(`${API_BASE}/api/products`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            retailer: r.retailer,
-            productId: r.productId,
-            name: r.name,
-            imageUrl: r.imageUrl,
-            lat: userLocation.lat,
-            lon: userLocation.lon,
-          }),
-        });
-        if (!res2.ok) {
-          const body = await res2.json().catch(() => ({}));
-          alert(body.error || 'Could not track this product.');
-          return;
-        }
-        searchInput.value = '';
-        searchResultsEl.hidden = true;
-        await loadProducts();
+  searchResultsEl.innerHTML = results
+    .map(
+      (r, i) => `
+      <div class="search-result-item">
+        <span><span class="retailer-tag ${r.retailer}">${RETAILER_META[r.retailer]?.label || r.retailer}</span> ${escapeHtml(r.name)}</span>
+        <button class="btn-ghost" data-track="${i}">Track</button>
+      </div>`
+    )
+    .join('');
+  searchResultsEl.querySelectorAll('[data-track]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const r = results[Number(btn.dataset.track)];
+      if (!userLocation) {
+        alert('Click "My location" first so this can find nearby stores.');
+        return;
+      }
+      const res2 = await fetch(`${API_BASE}/api/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          retailer: r.retailer,
+          productId: r.productId,
+          name: r.name,
+          imageUrl: r.imageUrl,
+          lat: userLocation.lat,
+          lon: userLocation.lon,
+        }),
       });
+      if (!res2.ok) {
+        const body = await res2.json().catch(() => ({}));
+        alert(body.error || 'Could not track this product.');
+        return;
+      }
+      searchInput.value = '';
+      searchResultsEl.hidden = true;
+      await loadProducts();
     });
-  }, 350);
+  });
 });
 
 // --- Distance slider ---

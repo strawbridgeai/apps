@@ -13,8 +13,17 @@
 //     real run is the actual test. If parsing breaks, check current
 //     community writeups (search "target redsky api") before assuming the
 //     whole approach is dead; these endpoints have shifted names before.
+const crypto = require('crypto');
+
 const BASE = 'https://redsky.target.com/redsky_aggregations/v1/web';
 const PUBLIC_KEY = 'ff457966e64d5e877fdbad070f276d18ecec4a0';
+
+// plp_search_v2 now rejects requests with no visitor_id (confirmed live,
+// 2026-08-29: "Variable 'visitor_id' has coerced Null value for NonNull
+// type 'String!'") - target.com's frontend normally persists one per
+// browser in a cookie, but the field isn't validated against anything real,
+// so a random 32-hex-char value (the same shape) per process is enough.
+const VISITOR_ID = crypto.randomBytes(16).toString('hex');
 
 async function getJson(url) {
   const res = await fetch(url, {
@@ -29,7 +38,8 @@ async function getJson(url) {
 async function searchProducts(query) {
   const url =
     `${BASE}/plp_search_v2?key=${PUBLIC_KEY}&keyword=${encodeURIComponent(query)}` +
-    `&channel=WEB&count=10&offset=0&page=%2Fs%2F${encodeURIComponent(query)}&platform=desktop&pricing_store_id=3991`;
+    `&channel=WEB&count=10&offset=0&page=%2Fs%2F${encodeURIComponent(query)}&platform=desktop&pricing_store_id=3991` +
+    `&visitor_id=${VISITOR_ID}`;
   const data = await getJson(url);
   const items = data?.data?.search?.products || [];
   return items.map((p) => ({
