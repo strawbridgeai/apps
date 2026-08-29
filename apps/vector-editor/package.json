@@ -1,0 +1,28 @@
+{
+  "name": "vector-editor",
+  "displayName": "Vector Studio",
+  "description": "Canva/Photoshop-style editor for vector and raster graphics — shapes, text, layers, images, and export to SVG, PNG, JPEG, PDF, or a reopenable project file.",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright-chromium": "^1.62.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "lucide-react": "^1.35.0",
+    "motion": "^13.1.1",
+    "pdf-lib": "^1.17.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "sortablejs": "^1.15.7"
+  }
+}
