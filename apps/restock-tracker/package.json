@@ -1,0 +1,29 @@
+{
+  "name": "restock-tracker",
+  "displayName": "Restock Radar",
+  "description": "Map of nearby store stock for tracked Pokémon TCG products (Best Buy + Target), plus online-only restock link watching, with email alerts.",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright-chromium": "^1.62.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "leaflet": "^1.9.4",
+    "leaflet.markercluster": "^1.5.3",
+    "lucide-react": "^1.35.0",
+    "motion": "^13.1.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
