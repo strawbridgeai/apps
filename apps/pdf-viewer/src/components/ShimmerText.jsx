@@ -14,10 +14,11 @@ export default function ShimmerText({ text = 'Text Shimmer', className }) {
         backgroundPosition: ['200% center', '-200% center'],
       }}
       className={cn(
-        // Original Kokonut UI recipe shimmers dark-on-light (near-black via
-        // gray); inverted here to a warm gold-on-cream sweep so it's
-        // actually visible against this app's dark/glass theme.
-        'bg-[length:200%_100%] bg-gradient-to-r from-[#f2e9dd] via-[#c9a24b] to-[#f2e9dd] bg-clip-text font-bold text-transparent',
+        // Sweeps through the same leaf-green -> turquoise -> gold trio as
+        // the landing page's `.wordmark` gradient (site-ui/landing), so the
+        // title reads as the same brand rather than the old gold-on-cream
+        // sweep tuned for this app's original dark theme.
+        'bg-[length:200%_100%] bg-gradient-to-r from-[#2f6f36] via-[#24968a] to-[#2f6f36] bg-clip-text font-bold text-transparent',
         className
       )}
       transition={{

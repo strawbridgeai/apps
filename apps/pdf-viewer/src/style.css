@@ -6,30 +6,38 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
-/* Earth-tone / dark-accent / glass theme — see camping-locator/src/style.css
-   for the full rationale; same token set duplicated here since these are
-   independent Vite apps with no shared package. */
+/* "Sunlit solarpunk" — matches the live landing page's palette
+   (/root/site-ui/landing/src/style.css) and apps/vector-editor: pale
+   sage-cream ground, leaf-green + turquoise accents, sun-gold reserved for
+   rare highlights. Replaces the old dark espresso/terracotta direction so
+   this app reads as part of the same site. Same token set duplicated here
+   since these are independent Vite apps with no shared package. */
 :root {
-  --bg: #1a1512;
-  --bg-grad: radial-gradient(ellipse at top, #241c16 0%, #14100d 70%);
-  --panel: rgba(43, 35, 28, 0.62);
-  --panel-solid: #241d18;
-  --border: rgba(232, 213, 188, 0.14);
-  --text: #f2e9dd;
-  --text-dim: #b6a793;
-  --accent: #c96f43;
-  --accent-dim: #a85a34;
-  --accent-2: #8a9a6b;
-  --gold: #c9a24b;
+  --bg: #f6f7f0;
+  --bg-grad: radial-gradient(ellipse 70% 50% at 15% -10%, rgba(79, 157, 79, 0.14), transparent 60%),
+             radial-gradient(ellipse 60% 45% at 100% 10%, rgba(47, 168, 156, 0.12), transparent 60%);
+  --panel: rgba(255, 255, 255, 0.68);
+  --panel-solid: #ffffff;
+  --panel-solid-2: #eef1e7;
+  --border: rgba(30, 50, 25, 0.12);
+  --text: #1b2a18;
+  --text-dim: #52624a;
+  --accent: #3f8f45;
+  --accent-dim: #2f6f36;
+  --accent-rgb: 63, 143, 69;
+  --accent-2: #24968a;
+  --accent-2-rgb: 36, 150, 138;
+  --gold: #b3ad1f;
+  --gold-rgb: 179, 173, 31;
   --danger: #c1583f;
   --glass-blur: blur(16px);
   --glass-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.35),
-    0 12px 32px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: dark;
+    0 1px 1px rgba(60, 90, 50, 0.05),
+    0 12px 32px rgba(60, 90, 50, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -71,6 +79,7 @@ body {
 }
 
 .app-header h1 {
+  font-family: 'Outfit', 'Public Sans', sans-serif;
   font-size: 1.15rem;
   margin: 0;
 }
@@ -93,7 +102,7 @@ body {
   color: var(--text-dim);
   text-decoration: none;
 }
-.home-btn:hover { background: rgba(201, 111, 67, 0.14); color: var(--text); border-color: var(--accent); }
+.home-btn:hover { background: rgba(var(--accent-rgb), 0.14); color: var(--text); border-color: var(--accent); }
 .home-btn svg { width: 18px; height: 18px; }
 
 .header-actions {
@@ -166,7 +175,7 @@ body {
 }
 
 .sidebar-item {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(30, 50, 25, 0.03);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 8px;
@@ -179,13 +188,13 @@ body {
 
 .sidebar-item:hover {
   border-color: var(--accent);
-  background: rgba(201, 111, 67, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 
 .sidebar-item.active {
-  background: rgba(201, 111, 67, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(201, 111, 67, 0.25);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25);
 }
 
 .sidebar-item.drag-ghost {
@@ -196,7 +205,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #0f0c0a;
+  background: var(--panel-solid-2);
   border-radius: 4px;
   overflow: hidden;
   min-height: 120px;
@@ -253,7 +262,7 @@ button {
   color: var(--text);
   transition: background 0.2s ease, border-color 0.2s ease;
 }
-.btn-sm:hover { background: rgba(201, 111, 67, 0.14); border-color: var(--accent); }
+.btn-sm:hover { background: rgba(var(--accent-rgb), 0.14); border-color: var(--accent); }
 .btn-sm.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -345,7 +354,7 @@ button {
   font-weight: 500;
   color: var(--text);
 }
-.tray-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.tray-btn:hover { background: rgba(30, 50, 25, 0.08); }
 .tray-btn.active { background: var(--accent); color: #fff; }
 
 .tray-swatches { display: none; gap: 6px; align-items: center; padding-left: 4px; border-left: 1px solid var(--border); }
@@ -449,7 +458,7 @@ button {
   pointer-events: auto;
 }
 .text-overlay span::selection {
-  background: rgba(201, 111, 67, 0.4);
+  background: rgba(var(--accent-rgb), 0.4);
 }
 .text-overlay.tool-active span {
   pointer-events: none;

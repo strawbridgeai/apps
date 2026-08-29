@@ -9,8 +9,8 @@
 import { cn } from '../../lib/utils.js';
 
 const VARIANTS = {
-  default: 'bg-orange-700 text-white',
-  muted: 'bg-white/8 text-[#b6a793] ring-1 ring-inset ring-white/10',
+  default: 'bg-[#3f8f45] text-white',
+  muted: 'bg-black/5 text-[#52624a] ring-1 ring-inset ring-black/10',
 };
 
 export function Badge({ className, variant = 'default', ...props }) {
