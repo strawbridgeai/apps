@@ -1,0 +1,6 @@
+{
+  "hero": { "arrowBounce": true, "arrowBounceSeconds": 5, "minHeightMode": "full" },
+  "organicBackground": { "parallax": true, "parallaxIntensity": 1 },
+  "appGrid": { "scrollRevealDistance": 90, "animation": "fade-up" },
+  "footer": { "animation": "fade-in" }
+}

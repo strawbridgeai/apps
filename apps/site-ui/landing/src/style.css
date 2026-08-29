@@ -1,0 +1,153 @@
+/* Tailwind utilities only (theme.css + utilities.css) — deliberately
+   skipping tailwindcss/preflight.css so the reset doesn't fight the
+   hand-written tokens/base below. Matches apps/camping-locator. */
+@layer theme, base, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* "Sunlit solarpunk" — light/airy base per the isometric eco-city
+   reference: pale sage-cream ground, leaf-green + turquoise as the two
+   accents, sun-gold reserved for rare highlights. Replaces the old
+   dark copper/slate-teal graphite direction entirely — the landing
+   page is the public first impression and reads best in daylight. */
+:root {
+  color-scheme: light;
+  --bg: #f6f7f0;
+  --bg-grad: radial-gradient(ellipse 70% 50% at 15% -10%, rgba(79, 157, 79, 0.14), transparent 60%),
+             radial-gradient(ellipse 60% 45% at 100% 10%, rgba(47, 168, 156, 0.12), transparent 60%),
+             radial-gradient(ellipse 55% 40% at 50% 120%, rgba(224, 216, 63, 0.10), transparent 60%);
+  --panel: rgba(255, 255, 255, 0.6);
+  --panel-solid: #ffffff;
+  --panel-solid-2: #eef1e7;
+  --border: rgba(30, 50, 25, 0.10);
+  --text: #1b2a18;
+  --text-dim: #52624a;
+  --text-faint: #82927a;
+  --accent: #3f8f45;
+  --accent-dim: #2f6f36;
+  --accent-2: #24968a;
+  --accent-2-dim: #1c766d;
+  --gold: #d9d22e;
+  --gold-dim: #b3ad1f;
+  --danger: #c1583f;
+  --radius-card: 1rem;
+  --radius-button: 9999px;
+  --font-heading: 'Public Sans', system-ui, sans-serif;
+  --font-heading-size: clamp(2.25rem, 1.5rem + 3vw, 3.75rem);
+  --font-heading-weight: 600;
+  --wordmark-font: 'Outfit', 'Public Sans', sans-serif;
+  --wordmark-size: 1.125rem;
+  --footer-font: 'Public Sans', system-ui, sans-serif;
+  --footer-size: 0.75rem;
+  --glass-shadow-alpha: 0.10;
+  --glass-blur: blur(20px);
+  --glass-shadow:
+    0 1px 1px rgba(60, 90, 50, calc(var(--glass-shadow-alpha) * 0.4)),
+    0 20px 44px rgba(60, 90, 50, var(--glass-shadow-alpha)),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+
+* { box-sizing: border-box; }
+
+/* Preflight is deliberately skipped project-wide (see the @import note
+   above), which leaves native UA button chrome (border/background) in
+   place — invisible on solid-color buttons but a stray grey capsule
+   behind anything transparent. Reset just the button box model instead
+   of pulling in full preflight. */
+@layer base {
+  button {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-grad), var(--bg);
+  color: var(--text);
+  font-family: 'Public Sans', system-ui, sans-serif;
+}
+
+.serif { font-family: 'Instrument Serif', Georgia, serif; }
+
+a { color: inherit; text-decoration: none; }
+
+.glass {
+  position: relative;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
+}
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 40%);
+  pointer-events: none;
+}
+
+/* Diagonal light-sweep on hover — Kokonut/Watermelon-style glass shine,
+   swept via background-position instead of a translating pseudo-element
+   so it works on any border-radius without clipping tricks. */
+.shine {
+  background-image: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.55) 40%,
+    rgba(255, 255, 255, 0.55) 44%,
+    transparent 60%
+  );
+  background-size: 250% 250%;
+  background-position: 120% -20%;
+  transition: background-position 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.group:hover .shine, .shine:hover { background-position: -20% 120%; }
+
+.wordmark {
+  font-family: 'Outfit', 'Public Sans', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  background: linear-gradient(120deg, var(--accent-dim) 0%, var(--accent) 45%, var(--accent-2) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(90px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .drift { animation: drift 22s ease-in-out infinite; }
+  .drift-slow { animation: drift 34s ease-in-out infinite reverse; }
+  .bob { animation: bob 5s ease-in-out infinite; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(2%, -3%) scale(1.03); }
+  66% { transform: translate(-2%, 2%) scale(0.98); }
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}

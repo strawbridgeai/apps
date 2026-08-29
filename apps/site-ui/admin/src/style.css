@@ -1,0 +1,159 @@
+/* Tailwind utilities only (theme.css + utilities.css) — same scoping as
+   apps/camping-locator and site-ui/landing, so preflight doesn't fight
+   the hand-written base below. */
+@layer theme, base, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* "Modern solarpunk" — dark base per the bioluminescent moss-on-circuit
+   reference, but brighter/more transparent glass than the previous pass:
+   the old panels read as flat dark fills rather than glowing glass,
+   especially the tab nav. Panels are now lower-opacity with a visible
+   glow bleeding through, borders are brighter, and accents lean
+   saturated/luminous (glow-lit leaf green + cyan) rather than muted. */
+:root {
+  color-scheme: dark;
+  --bg: #0c1410;
+  --bg-grad: radial-gradient(ellipse 60% 45% at 88% -8%, rgba(225, 226, 74, 0.16), transparent 60%),
+             radial-gradient(ellipse 65% 50% at 6% 6%, rgba(94, 214, 150, 0.14), transparent 60%),
+             radial-gradient(ellipse 55% 45% at 50% 105%, rgba(60, 200, 190, 0.10), transparent 60%);
+  --panel: rgba(150, 200, 170, 0.08);
+  --panel-solid: #142019;
+  --panel-solid-2: #0f1813;
+  --border: rgba(210, 235, 210, 0.16);
+  --text: #f0f5e8;
+  --text-dim: #a8bda0;
+  --text-faint: #718a6d;
+  --accent: #5ed696;
+  --accent-dim: #3fae76;
+  --gold: #e1e24a;
+  --gold-dim: #b8b734;
+  --sky: #5fc9d6;
+  --clay: #d98a5f;
+  --danger: #e0684a;
+  --good: #5ed696;
+  --warn: #e2b54a;
+  --bad: #e0684a;
+  --glass-blur: blur(24px);
+  --glass-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.35),
+    0 24px 54px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+
+* { box-sizing: border-box; }
+
+/* Preflight is deliberately skipped project-wide (see the @import note
+   above), which leaves native UA button chrome (border/background) in
+   place — invisible on solid-color buttons but a stray grey capsule
+   behind anything transparent, like inactive tab triggers. Reset just
+   the button box model instead of pulling in full preflight. */
+@layer base {
+  button {
+    appearance: none;
+    -webkit-appearance: none;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-grad), var(--bg);
+  color: var(--text);
+  font-family: 'Public Sans', system-ui, sans-serif;
+}
+
+.serif { font-family: 'Instrument Serif', Georgia, serif; }
+a { color: inherit; text-decoration: none; }
+
+.glass {
+  position: relative;
+  background: var(--panel);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border);
+  box-shadow: var(--glass-shadow);
+}
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0) 34%);
+  pointer-events: none;
+}
+
+/* Diagonal light-sweep on hover, matching the landing page's glass
+   shine — swept via background-position so it works on any radius. */
+.shine {
+  background-image: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.14) 40%,
+    rgba(255, 255, 255, 0.14) 44%,
+    transparent 60%
+  );
+  background-size: 250% 250%;
+  background-position: 120% -20%;
+  transition: background-position 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.group:hover .shine, .shine:hover { background-position: -20% 120%; }
+
+.wordmark {
+  font-family: 'Outfit', 'Public Sans', sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  background: linear-gradient(180deg, #fbf3df 0%, var(--gold) 42%, var(--accent) 78%, var(--accent-dim) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3));
+}
+
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(100px);
+}
+
+/* Firefly/spore dots — small glowing points drifting behind the glass,
+   nodding to the glowing-mushroom reference without being literal. */
+.firefly {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(0.5px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rise { animation: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .pulse-dot { animation: pulseDot 1.4s ease-in-out infinite; }
+  .drift { animation: drift 20s ease-in-out infinite; }
+  .float-y { animation: floatY 6s ease-in-out infinite; }
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(2%, -3%) scale(1.04); }
+  66% { transform: translate(-2%, 2%) scale(0.97); }
+}
+@keyframes floatY {
+  0%, 100% { opacity: 0.5; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-10px); }
+}
