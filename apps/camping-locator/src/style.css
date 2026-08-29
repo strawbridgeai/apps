@@ -5,40 +5,48 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
-/* Earth-tone / dark-accent / glass design language, shared (duplicated,
-   not imported — these are three independent Vite apps with no shared
-   package) across camping-locator, file-converter, and pdf-viewer.
-   Terracotta + moss as the two accents over a deep espresso base; panels
-   are translucent + backdrop-blurred rather than flat fills, inspired by
-   Kokonut UI's Liquid Glass Card (github.com/kokonut-labs/kokonutui,
-   components/kokonutui/liquid-glass-card.tsx) — simplified to a plain
-   background+blur+layered-shadow recipe here since the original's SVG
+/* "Sunlit solarpunk" — matches the live landing page's palette
+   (/root/site-ui/landing/src/style.css) and apps/vector-editor: pale
+   sage-cream ground, leaf-green + turquoise accents, sun-gold reserved for
+   rare highlights. Replaces the old dark espresso/terracotta direction so
+   this app reads as part of the same site as the apps grid it's launched
+   from. Panels stay translucent + backdrop-blurred rather than flat fills,
+   inspired by Kokonut UI's Liquid Glass Card (github.com/kokonut-labs/
+   kokonutui, components/kokonutui/liquid-glass-card.tsx) — simplified to a
+   plain background+blur+layered-shadow recipe here since the original's SVG
    feTurbulence displacement filter is a lot of runtime cost for a subtle
    effect on a map-heavy page. */
 :root {
-  --bg: #1a1512;
-  --bg-grad: radial-gradient(ellipse at top, #241c16 0%, #14100d 70%);
-  --panel: rgba(43, 35, 28, 0.62);
-  --panel-solid: #241d18;
-  --border: rgba(232, 213, 188, 0.14);
-  --text: #f2e9dd;
-  --text-dim: #b6a793;
-  --accent: #c96f43;
-  --accent-dim: #a85a34;
-  --accent-2: #8a9a6b;
-  --gold: #c9a24b;
+  --bg: #f6f7f0;
+  --bg-grad: radial-gradient(ellipse 70% 50% at 15% -10%, rgba(79, 157, 79, 0.14), transparent 60%),
+             radial-gradient(ellipse 60% 45% at 100% 10%, rgba(47, 168, 156, 0.12), transparent 60%);
+  --panel: rgba(255, 255, 255, 0.68);
+  --panel-solid: #ffffff;
+  --panel-solid-2: #eef1e7;
+  --border: rgba(30, 50, 25, 0.12);
+  --text: #1b2a18;
+  --text-dim: #52624a;
+  --text-faint: #82927a;
+  --accent: #3f8f45;
+  --accent-dim: #2f6f36;
+  --accent-rgb: 63, 143, 69;
+  --accent-2: #24968a;
+  --accent-2-dim: #1c766d;
+  --accent-2-rgb: 36, 150, 138;
+  --gold: #b3ad1f;
+  --gold-rgb: 179, 173, 31;
   --danger: #c1583f;
-  --danger-bg: rgba(193, 88, 63, 0.16);
-  --success: #7fa05e;
-  --success-bg: rgba(127, 160, 94, 0.16);
+  --danger-bg: rgba(193, 88, 63, 0.12);
+  --success: #3f8f45;
+  --success-bg: rgba(63, 143, 69, 0.12);
   --glass-blur: blur(16px);
   --glass-shadow:
-    0 1px 1px rgba(0, 0, 0, 0.35),
-    0 12px 32px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.03);
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  color-scheme: dark;
+    0 1px 1px rgba(60, 90, 50, 0.05),
+    0 12px 32px rgba(60, 90, 50, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -77,7 +85,9 @@ body {
 }
 
 .app-header h1 {
+  font-family: 'Outfit', 'Public Sans', sans-serif;
   font-size: 1.15rem;
+  font-weight: 600;
   margin: 0;
   flex: 1;
 }
@@ -102,7 +112,7 @@ body {
   color: var(--text-dim);
   text-decoration: none;
 }
-.home-btn:hover { background: rgba(201, 111, 67, 0.14); color: var(--text); border-color: var(--accent); }
+.home-btn:hover { background: rgba(var(--accent-rgb), 0.14); color: var(--text); border-color: var(--accent); }
 .home-btn svg { width: 18px; height: 18px; }
 
 .ghost-btn {
@@ -116,7 +126,7 @@ body {
   cursor: pointer;
   transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
 }
-.ghost-btn:hover { border-color: var(--accent); color: var(--gold); background: rgba(201, 111, 67, 0.1); }
+.ghost-btn:hover { border-color: var(--accent); color: var(--gold); background: rgba(var(--accent-rgb), 0.1); }
 
 .toolbar {
   flex: none;
@@ -166,7 +176,7 @@ body {
   height: 18px;
   margin: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(30, 50, 25, 0.08);
   border: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.25s ease, border-color 0.25s ease;
@@ -179,7 +189,7 @@ body {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--text);
+  background: var(--text-dim);
   transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .layer-toggle input[type="checkbox"]:checked {

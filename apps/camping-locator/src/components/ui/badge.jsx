@@ -13,10 +13,10 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-orange-700 text-white',
-        success: 'bg-[#7fa05e]/20 text-[#a9c78c] ring-1 ring-inset ring-[#7fa05e]/30',
-        warning: 'bg-[#c9a24b]/20 text-[#e0c179] ring-1 ring-inset ring-[#c9a24b]/30',
-        muted: 'bg-white/8 text-[#b6a793] ring-1 ring-inset ring-white/10',
+        default: 'bg-[#3f8f45] text-white',
+        success: 'bg-[#3f8f45]/15 text-[#2f6f36] ring-1 ring-inset ring-[#3f8f45]/35',
+        warning: 'bg-[#b3ad1f]/20 text-[#7a750f] ring-1 ring-inset ring-[#b3ad1f]/40',
+        muted: 'bg-black/5 text-[#52624a] ring-1 ring-inset ring-black/10',
       },
     },
     defaultVariants: { variant: 'default' },

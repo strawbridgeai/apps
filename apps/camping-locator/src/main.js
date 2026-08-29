@@ -117,7 +117,7 @@ toggleContainer.addEventListener('change', (e) => {
 // existing plain-DOM code below (disabled toggling, click wiring) keeps
 // working unchanged against the id.
 createRoot(document.querySelector('#search-btn-mount')).render(
-  createElement(GradientButton, { id: 'search-btn', type: 'button', variant: 'clay', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
+  createElement(GradientButton, { id: 'search-btn', type: 'button', variant: 'emerald', label: 'Search this area', onClick: () => runSearch({ silent: false }) })
 );
 
 const statusEl = document.querySelector('#status');
