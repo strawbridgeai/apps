@@ -23,13 +23,15 @@ function sendMail({ to, subject, text }) {
   });
 }
 
-function restockEmail({ to, productName, storeName, retailer, unsubscribeUrl }) {
+function restockEmail({ to, productName, storeName, retailer, buyUrl, unsubscribeUrl }) {
   return sendMail({
     to,
     subject: `Restock: ${productName} — ${storeName}`,
     text:
       `${productName} is now showing in stock at ${storeName} (${retailer}).\n\n` +
-      `This is an alert only — nothing was purchased on your behalf.\n\n` +
+      (buyUrl ? `Buy it here: ${buyUrl}\n\n` : '') +
+      `This is an alert only — nothing was purchased on your behalf. Stock can disappear` +
+      ` fast once a restock is spotted, so double-check it's still there before making a trip.\n\n` +
       `Stop alerts for this item: ${unsubscribeUrl}`,
   });
 }

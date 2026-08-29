@@ -78,10 +78,16 @@ app.innerHTML = `
     </div>
 
     <div class="watches-view" id="watches-view" hidden>
+      <p class="watches-intro">
+        The map only covers Best Buy and Target — the only two with a live per-store stock API.
+        For everywhere else that sells Pokémon cards (Walmart, Tractor Supply, Ace Hardware, GameStop,
+        a store's own random online drop page, anywhere) paste the product page below and this checks
+        it for restock wording on its own schedule.
+      </p>
       <div class="watches-list" id="watches-list"></div>
       <div class="toolbar" style="margin-top:16px;border-radius:10px;border:1px solid var(--border);">
         <div class="search-row">
-          <input type="text" id="watch-label" placeholder="Label (e.g. Scarlet & Violet ETB)">
+          <input type="text" id="watch-label" placeholder="Label (e.g. Walmart Mega Evolution ETB)">
         </div>
         <div class="search-row">
           <input type="url" id="watch-url" placeholder="Product page URL to watch">
@@ -151,6 +157,7 @@ function renderTrackedList() {
       <span class="tracked-chip">
         <span class="retailer-tag ${p.retailer}">${RETAILER_META[p.retailer]?.label || p.retailer}</span>
         ${escapeHtml(p.name)}
+        ${p.buyUrl ? `<a class="buy-link" href="${escapeHtml(p.buyUrl)}" target="_blank" rel="noopener">Buy →</a>` : ''}
         <button data-remove="${p.id}" title="Stop tracking">&times;</button>
       </span>`
     )

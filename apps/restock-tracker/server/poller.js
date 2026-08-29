@@ -19,6 +19,8 @@ const INTERVALS_MS = {
 };
 const ONLINE_WATCH_INTERVAL_MS = Number(process.env.WATCH_POLL_MS || 5 * 60 * 1000);
 
+const updateProductUrl = db.prepare('UPDATE tracked_products SET product_url = ? WHERE id = ?');
+
 const upsertSnapshot = db.prepare(`
   INSERT INTO stock_snapshots (tracked_product_id, store_id, store_name, lat, lon, in_stock, checked_at)
   VALUES (@tracked_product_id, @store_id, @store_name, @lat, @lon, @in_stock, @checked_at)
@@ -41,6 +43,7 @@ async function pollProduct(product) {
     return;
   }
   const now = Date.now();
+  const restockedStores = [];
   for (const store of results) {
     const prior = getPriorSnapshot.get(product.id, store.storeId);
     const wasOutOfStock = !prior || prior.in_stock === 0;
@@ -53,17 +56,26 @@ async function pollProduct(product) {
       in_stock: store.inStock ? 1 : 0,
       checked_at: now,
     });
-    if (wasOutOfStock && store.inStock) {
-      const subs = subsForProduct.all(product.id);
-      for (const sub of subs) {
-        restockEmail({
-          to: sub.email,
-          productName: product.name,
-          storeName: store.storeName,
-          retailer: product.retailer,
-          unsubscribeUrl: unsubscribeUrl(sub.unsubscribe_token),
-        }).catch((err) => console.error('[poller] email send failed:', err.message));
-      }
+    if (wasOutOfStock && store.inStock) restockedStores.push(store);
+  }
+  if (!restockedStores.length) return;
+
+  // Only worth the extra request (and, for Best Buy, extra API-quota use)
+  // when there's actually a restock to email about - the link's only
+  // consumer today is that email, not the map view.
+  const buyUrl = await provider.getProductUrl(product.product_id).catch(() => null);
+  if (buyUrl) updateProductUrl.run(buyUrl, product.id);
+  const subs = subsForProduct.all(product.id);
+  for (const store of restockedStores) {
+    for (const sub of subs) {
+      restockEmail({
+        to: sub.email,
+        productName: product.name,
+        storeName: store.storeName,
+        retailer: product.retailer,
+        buyUrl,
+        unsubscribeUrl: unsubscribeUrl(sub.unsubscribe_token),
+      }).catch((err) => console.error('[poller] email send failed:', err.message));
     }
   }
 }

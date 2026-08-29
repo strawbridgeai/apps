@@ -33,6 +33,23 @@ async function searchProducts(query) {
   }));
 }
 
+// The API's own `url` field ("URL to BESTBUY.COM product detail page") is
+// the accurate, validated link - but per Best Buy's docs it's a
+// click-tracking link that expires after 7 days, so this is called fresh on
+// every poll rather than cached indefinitely (see poller.js). Falls back to
+// a plain SKU search link (never expires, always resolves) if the field is
+// ever missing.
+async function getProductUrl(productId) {
+  try {
+    const url = `${BASE}/products(sku=${encodeURIComponent(productId)})?apiKey=${apiKey()}&format=json&show=sku,url`;
+    const data = await getJson(url);
+    return data.products?.[0]?.url || `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(productId)}`;
+  } catch (err) {
+    console.error(`[bestbuy] getProductUrl(${productId}) failed:`, err.message);
+    return `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(productId)}`;
+  }
+}
+
 // Nearby stores + this SKU's availability at each -> [{ storeId, storeName, lat, lon, inStock }]
 async function getNearbyStock(productId, lat, lon, radiusMi) {
   const storesUrl = `${BASE}/stores(area(${lat},${lon},${radiusMi}))?apiKey=${apiKey()}&format=json&show=storeId,name,lat,lng&pageSize=50`;
@@ -60,4 +77,4 @@ async function getNearbyStock(productId, lat, lon, radiusMi) {
   });
 }
 
-module.exports = { name: 'bestbuy', searchProducts, getNearbyStock };
+module.exports = { name: 'bestbuy', searchProducts, getNearbyStock, getProductUrl };

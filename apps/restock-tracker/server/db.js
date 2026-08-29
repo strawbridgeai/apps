@@ -65,4 +65,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_subscriptions_target ON subscriptions(target_type, target_id);
 `);
 
+// SQLite has no "ADD COLUMN IF NOT EXISTS" - added after the table already
+// existed in production, so guard with try/catch instead of a version-
+// tracked migration system this app is too small to need.
+try {
+  db.exec('ALTER TABLE tracked_products ADD COLUMN product_url TEXT');
+} catch (err) {
+  if (!/duplicate column name/i.test(err.message)) throw err;
+}
+
 module.exports = { db, DATA_DIR };

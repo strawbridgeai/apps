@@ -94,6 +94,7 @@ app.get('/api/products', (req, res) => {
       productId: p.product_id,
       name: p.name,
       imageUrl: p.image_url,
+      buyUrl: p.product_url,
       refLat: p.ref_lat,
       refLon: p.ref_lon,
       stores: snapshotsFor.all(p.id).map((s) => ({

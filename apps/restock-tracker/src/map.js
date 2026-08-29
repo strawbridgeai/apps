@@ -47,6 +47,7 @@ function tooltipHtml(store, product) {
     ${escapeHtml(product.name)} &middot; ${retailerLabel}<br>
     <span class="${store.inStock ? 'in-stock' : 'out-of-stock'}">${store.inStock ? 'In stock' : 'Not in stock'}</span><br>
     <span class="checked-at">checked ${timeAgo(store.checkedAt)}</span>
+    ${store.inStock && product.buyUrl ? '<br><span class="tooltip-hint">Click pin to buy →</span>' : ''}
   </div>`;
 }
 
@@ -91,6 +92,12 @@ export function createMapController(container) {
         opacity: 0.95,
         className: 'stock-tooltip-wrap',
       });
+      // Tooltips aren't interactive (they close on mouseout before a link
+      // inside could be clicked) - a click on an in-stock pin is the buy
+      // action instead, tooltip stays pure hover info.
+      if (store.inStock && product.buyUrl) {
+        marker.on('click', () => window.open(product.buyUrl, '_blank', 'noopener'));
+      }
       group.addLayer(marker);
     }
   }

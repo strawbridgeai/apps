@@ -71,4 +71,11 @@ async function getNearbyStock(productId, lat, lon, _radiusMi) {
   }));
 }
 
-module.exports = { name: 'target', searchProducts, getNearbyStock };
+// Target's plain "/p/-/A-{tcin}" product URL redirects to the full
+// slugged page and never expires (confirmed live, 2026-08-29) - no API
+// call needed, unlike Best Buy's expiring click-tracking link.
+async function getProductUrl(productId) {
+  return `https://www.target.com/p/-/A-${encodeURIComponent(productId)}`;
+}
+
+module.exports = { name: 'target', searchProducts, getNearbyStock, getProductUrl };
