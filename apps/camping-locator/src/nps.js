@@ -8,7 +8,14 @@
  */
 import { fetchWithTimeout } from './fetchUtil.js';
 
-const API_BASE = `${location.protocol}//${location.hostname}:2012`;
+// Same-origin, proxied by the web server at /apps/camping-locator/api/ ->
+// the camping-locator-api backend on 127.0.0.1:2012 (see the vhost conf) —
+// not a cross-origin `${location.hostname}:2012` call, which broke once
+// this app started being reached through a real domain (strawbridgeai.com)
+// instead of the bare VPS IP: Cloudflare's proxy only forwards standard
+// web ports, so a hardcoded :2012 fetch from a Cloudflare-proxied page
+// origin had nowhere to go (same bug and same fix as file-converter).
+const API_BASE = '/apps/camping-locator';
 // A cold backend cache paginates ~474 NPS units server-side (measured
 // ~3-4s) before it can answer — give that real headroom, still bounded.
 const FETCH_TIMEOUT_MS = 20000;

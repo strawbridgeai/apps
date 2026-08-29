@@ -4,7 +4,14 @@ import { createElement } from 'react';
 import FileUpload from './components/FileUpload.jsx';
 import ShimmerText from './components/ShimmerText.jsx';
 
-const API_BASE = `${location.protocol}//${location.hostname}:2011`;
+// Same-origin, proxied by the web server at /apps/file-converter/api/ ->
+// the file-converter-api backend on 127.0.0.1:2011 (see the vhost conf) —
+// deliberately not a cross-origin `${location.hostname}:2011` call, which
+// broke once this app started being reached through a real domain
+// (strawbridgeai.com) instead of the bare VPS IP: Cloudflare's proxy only
+// forwards standard web ports, so a hardcoded :2011 fetch from a
+// Cloudflare-proxied page origin had nowhere to go.
+const API_BASE = '/apps/file-converter';
 
 const CATEGORY_LABELS = { audio: 'Audio', image: 'Image', document: 'Document' };
 const CATEGORY_ARTICLE = { audio: 'an', image: 'an', document: 'a' };
@@ -72,17 +79,8 @@ function setStatus(msg, kind) {
   statusEl.textContent = msg || '';
 }
 
-// This box doesn't have a real domain pointed at it yet, so the API's TLS
-// cert doesn't match the bare IP it's reached by. A direct page visit gets
-// a normal click-through browser warning; a background fetch() to a
-// different origin (this page is on :443, the API is on :2011) just fails
-// silently with no warning dialog at all — so on that failure, guide the
-// visitor to go accept the cert once rather than show an opaque error.
-function setCertHelp() {
-  statusEl.className = 'status visible error';
-  statusEl.innerHTML =
-    `Couldn't reach the conversion service — your browser doesn't trust its certificate yet (this server doesn't have a proper domain set up yet, so this is a one-time step). ` +
-    `<a href="${API_BASE}/api/health" target="_blank" rel="noopener">Open this link</a>, click "Advanced" → "Proceed anyway" past the warning, then come back here and try again.`;
+function setNetworkError() {
+  setStatus("Couldn't reach the conversion service. Try again in a moment.", 'error');
 }
 
 function extOf(filename) {
@@ -213,7 +211,7 @@ convertBtn.addEventListener('click', async () => {
     URL.revokeObjectURL(url);
     setStatus(`Done — ${filename} downloaded.`, 'success');
   } catch (err) {
-    if (err instanceof TypeError) setCertHelp();
+    if (err instanceof TypeError) setNetworkError();
     else setStatus(err.message || 'Conversion failed.', 'error');
   } finally {
     progressTrack.classList.remove('visible');
@@ -227,4 +225,4 @@ async function loadCatalog() {
 }
 
 renderFileUpload();
-loadCatalog().then(renderFileUpload).catch(setCertHelp);
+loadCatalog().then(renderFileUpload).catch(setNetworkError);

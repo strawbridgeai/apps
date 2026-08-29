@@ -13,7 +13,9 @@
  */
 import { fetchWithTimeout } from './fetchUtil.js';
 
-const API_BASE = `${location.protocol}//${location.hostname}:2012`;
+// Same-origin, proxied by the web server (see nps.js for the full
+// explanation - identical fix, same underlying bug).
+const API_BASE = '/apps/camping-locator';
 const FETCH_TIMEOUT_MS = 15000; // our own backend, on the same VPS — should always be fast; a hang here means the service is down, not slow
 
 const EARTH_RADIUS_MILES = 3958.8;
