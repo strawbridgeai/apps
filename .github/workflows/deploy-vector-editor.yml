@@ -1,0 +1,32 @@
+name: Deploy vector-editor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/vector-editor/**'
+      - '.github/workflows/deploy-vector-editor.yml'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/vector-editor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+      - run: npm run build
+
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/vector-editor
+          command: pages deploy dist --project-name=vector-editor --branch=main
