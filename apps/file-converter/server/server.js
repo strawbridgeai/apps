@@ -294,6 +294,9 @@ const server = https.createServer(
   app
 );
 
-server.listen(PORT, () => {
-  console.log(`file-converter-api listening on https://0.0.0.0:${PORT}`);
+// Loopback-only: Apache reverse-proxies strawbridgeai.com/apps/
+// file-converter/api/ to 127.0.0.1 here (see the vhost conf), so this
+// never needs to accept a connection over the public interface directly.
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`file-converter-api listening on https://127.0.0.1:${PORT}`);
 });

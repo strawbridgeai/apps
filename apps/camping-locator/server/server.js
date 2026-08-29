@@ -140,6 +140,9 @@ const options = {
   key: fs.readFileSync(path.join(CERT_DIR, 'webuzo.key')),
 };
 
-https.createServer(options, app).listen(PORT, () => {
-  console.log(`camping-locator-api listening on ${PORT}`);
+// Loopback-only: Apache reverse-proxies strawbridgeai.com/apps/
+// camping-locator/api/ to 127.0.0.1 here (see the vhost conf), so this
+// never needs to accept a connection over the public interface directly.
+https.createServer(options, app).listen(PORT, '127.0.0.1', () => {
+  console.log(`camping-locator-api listening on https://127.0.0.1:${PORT}`);
 });
