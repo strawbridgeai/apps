@@ -179,6 +179,29 @@ const upload = multer({
     },
   }),
   limits: { fileSize: MAX_FILE_BYTES, files: 1 },
+  // Rejects an invalid/mismatched extension DURING the multipart parse, so
+  // an unlisted (or spoofed) extension is never written to disk at all —
+  // previously this same check ran one middleware later, in the route
+  // handler below, which meant multer had already saved the file as
+  // `input.<claimed-ext>` before that later check could reject it. Every
+  // source format this app accepts is audio/image/document only (see
+  // *_SOURCE_EXTS above), so nothing executable can ever be a valid
+  // sourceExt regardless — this closes the write-before-validate gap, it
+  // doesn't add a new category of blocked type.
+  fileFilter(req, file, cb) {
+    const category = req.body.category;
+    const sourceExt = (req.body.sourceExt || '').toLowerCase();
+    const realExt = path.extname(file.originalname || '').slice(1).toLowerCase();
+    if (!['audio', 'image', 'document'].includes(category)) return cb(badRequest('Invalid category.'));
+    if (!sourceExtsFor(category).includes(sourceExt)) return cb(badRequest('Source file type is not allowed for this category.'));
+    // realExt is trusted only as a cross-check against the client's sourceExt
+    // claim, not as an independent allowlist — a bare/odd original filename
+    // (no extension, or one multer already can't parse) shouldn't block a
+    // correctly-claimed upload, but an explicit mismatch (e.g. claiming
+    // "mp3" for a file actually named "shell.php") is rejected outright.
+    if (realExt && realExt !== sourceExt) return cb(badRequest('File extension does not match the selected source type.'));
+    cb(null, true);
+  },
 });
 
 app.post(
@@ -189,7 +212,11 @@ app.post(
     upload.single('file')(req, res, (err) => {
       if (err) {
         cleanup(req.workDir);
-        const msg = err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (100MB max).' : 'Upload failed.';
+        // fileFilter's badRequest() errors carry their own message and a
+        // 400 statusCode - surface those as-is; anything else (multer's own
+        // errors, e.g. LIMIT_FILE_SIZE) gets a generic message instead of
+        // leaking internal detail.
+        const msg = err.statusCode === 400 ? err.message : err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (100MB max).' : 'Upload failed.';
         return res.status(400).json({ error: msg });
       }
       next();
