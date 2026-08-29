@@ -89,7 +89,7 @@ export default function NewDocumentModal({ onClose }) {
           </div>
         </div>
 
-        <div className="field-row">
+        <div className="field-row field-row-bg">
           <label>Background</label>
           <input type="color" value={background} onChange={(e) => setBackground(e.target.value)} />
         </div>

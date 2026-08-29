@@ -344,6 +344,17 @@ body {
   background: none;
 }
 .field-row input[type="range"] { flex: 1; }
+
+/* Background field: show the full word instead of the ellipsis truncation
+   every other (short) label relies on, and push the swatch to the row's
+   far right instead of sitting immediately after the label. */
+.field-row-bg { justify-content: space-between; }
+.field-row-bg label {
+  width: auto;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
+}
 .field-row .field-val {
   width: 34px;
   flex: none;
@@ -540,12 +551,10 @@ body {
 .zoom-group {
   display: flex;
   align-items: center;
-  gap: 2px;
-  background: rgba(30,50,25,0.045);
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  padding: 2px;
+  gap: 4px;
 }
+/* Bordered like the panel-tab-trigger pills (Properties/Layers), instead of
+   one shared outer ring around the whole group. */
 .zoom-group button {
   width: 26px;
   height: 26px;
@@ -553,9 +562,12 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-dim);
-  border-radius: 5px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(30, 50, 25, 0.02);
+  transition: color 0.15s ease, border-color 0.15s ease;
 }
-.zoom-group button:hover { color: var(--text); background: rgba(30,50,25,0.07); }
+.zoom-group button:hover { color: var(--text); border-color: rgba(var(--accent-rgb), 0.4); background: rgba(30,50,25,0.07); }
 .zoom-group button svg { width: 14px; height: 14px; }
 .zoom-group .zoom-val {
   font-size: 0.72rem;

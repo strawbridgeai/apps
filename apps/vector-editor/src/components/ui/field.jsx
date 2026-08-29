@@ -1,6 +1,6 @@
-export function Field({ label, children }) {
+export function Field({ label, className, children }) {
   return (
-    <div className="field-row">
+    <div className={className ? `field-row ${className}` : 'field-row'}>
       <label>{label}</label>
       {children}
     </div>

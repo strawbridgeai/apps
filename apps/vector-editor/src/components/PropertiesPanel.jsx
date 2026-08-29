@@ -98,7 +98,7 @@ export default function PropertiesPanel() {
             <input type="number" min="1" value={doc.height} onChange={(e) => setDoc((d) => ({ ...d, height: Math.max(1, Number(e.target.value)) }))} />
           </Field>
         </div>
-        <Field label="Background">
+        <Field label="Background" className="field-row-bg">
           <input type="color" value={doc.background} onChange={(e) => setDoc((d) => ({ ...d, background: e.target.value }))} />
         </Field>
         <p className="empty-hint">Nothing selected.<br />Pick a tool from the left rail, or click a layer to edit it.</p>
