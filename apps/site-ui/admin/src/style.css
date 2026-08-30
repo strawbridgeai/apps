@@ -157,3 +157,15 @@ a { color: inherit; text-decoration: none; }
   0%, 100% { opacity: 0.5; transform: translateY(0); }
   50% { opacity: 1; transform: translateY(-10px); }
 }
+
+/* Mobile: reported as "can't scroll up" in the Terminal tab. xterm.js's own
+   .xterm-viewport rule (bundled from @xterm/xterm/css/xterm.css) only sets
+   overflow-y: scroll, with no touch-scroll hints - on mobile Safari/Chrome
+   that can leave a nested scrollable region's touch gesture ambiguous
+   against the outer page. These don't conflict with anything xterm itself
+   sets on this element, so they're safe to add regardless of CSS order. */
+.xterm .xterm-viewport {
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
