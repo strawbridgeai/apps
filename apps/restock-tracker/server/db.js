@@ -74,4 +74,17 @@ try {
   if (!/duplicate column name/i.test(err.message)) throw err;
 }
 
+// Target's store list (nearby_stores_v1) gives an address but no lat/lon -
+// this caches one-time geocodes of store addresses (see providers/target.js)
+// so repeated polls of the same nearby stores don't re-hit Nominatim, which
+// requires no more than ~1 request/sec and a real identifying User-Agent.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS store_geocode (
+    address TEXT PRIMARY KEY,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    cached_at INTEGER NOT NULL
+  );
+`);
+
 module.exports = { db, DATA_DIR };
