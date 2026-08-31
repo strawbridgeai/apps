@@ -150,22 +150,29 @@ export function useMemory(active) {
 function findField(schema, sectionId, objectId, fieldId) {
   const section = schema?.sections.find((s) => s.id === sectionId);
   const object = section?.objects.find((o) => o.id === objectId);
-  return object?.fields.find((f) => f.id === fieldId);
+  return { field: object?.fields.find((f) => f.id === fieldId), selector: object?.selector };
 }
 
 // Builds the { targetKind, name/path/patchId, value, preset } payload
 // DesignerBridge.jsx (landing side) expects for a live, no-rebuild update -
 // mirrors the same target.kind switch the real engine's applyEdits() uses
 // server-side (lib/cssVars.js / lib/config.js / lib/textPatch.js), just
-// producing a message instead of a disk write.
-function liveMessageFor(field, value) {
+// producing a message instead of a disk write. `selector` is only used for
+// animation-preset fields (see below) — every other field type ignores it.
+function liveMessageFor(field, value, selector) {
   const { target } = field;
   if (target.kind === 'cssVar') {
     const { value: formatted, preset } = formatCssValue(field, value);
     return { type: 'site-designer:live-set', targetKind: 'cssVar', name: target.name, value: formatted, preset };
   }
   if (target.kind === 'config') {
-    return { type: 'site-designer:live-set', targetKind: 'config', path: target.path, value };
+    // Switching a scroll-animation preset is otherwise invisible if the
+    // preview is already scrolled past the trigger element (every preset
+    // converges to the same fully-visible end state) - passing the
+    // object's selector lets DesignerBridge.jsx reset scroll position so
+    // the *next* scroll replays the newly-selected preset from the start.
+    const resetScrollFor = field.type === 'animation-preset' ? selector : undefined;
+    return { type: 'site-designer:live-set', targetKind: 'config', path: target.path, value, resetScrollFor };
   }
   if (target.kind === 'textPatch') {
     return { type: 'site-designer:live-set', targetKind: 'textPatch', patchId: target.patchId, value };
@@ -258,8 +265,8 @@ export function useSiteDesigner() {
         [objectId]: { ...prev[sectionId][objectId], [fieldId]: value },
       },
     }));
-    const field = findField(schema, sectionId, objectId, fieldId);
-    const msg = field && liveMessageFor(field, value);
+    const { field, selector } = findField(schema, sectionId, objectId, fieldId);
+    const msg = field && liveMessageFor(field, value, selector);
     if (msg) iframeRef.current?.contentWindow?.postMessage(msg, window.location.origin);
   }
 

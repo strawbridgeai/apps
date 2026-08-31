@@ -9,6 +9,9 @@ const ANIMATION_PRESET_LABEL = {
   'zoom-in': 'Zoom In',
   'slide-left': 'Slide Left',
   'slide-right': 'Slide Right',
+  'pin-zoom': 'Pin & Zoom',
+  'pin-reveal': 'Pin & Wipe',
+  'pin-stagger': 'Cascade In',
 };
 
 function FieldRow({ label, children, align = 'center' }) {

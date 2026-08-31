@@ -20,13 +20,27 @@ const GRADIENT_PRESETS = {
     'radial-gradient(ellipse 60% 45% at 100% 15%, rgba(63, 143, 200, 0.12), transparent 60%)',
 };
 
+// Every scroll-animation preset converges to the same fully-visible end
+// state, so switching presets while already scrolled past the trigger
+// element looks like nothing happened. Resets scroll to just below the
+// element (not auto-playing anything) so the next scroll the admin makes
+// replays the newly-selected preset from the start.
+function resetScrollAbove(selector) {
+  const el = selector && document.querySelector(selector);
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const targetTop = window.scrollY + rect.top - window.innerHeight + 40;
+  window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'auto' });
+}
+
 function applyLiveSet(msg) {
-  const { targetKind, name, path, patchId, value } = msg;
+  const { targetKind, name, path, patchId, value, resetScrollFor } = msg;
   if (targetKind === 'cssVar') {
     if (msg.preset) applyCssVarLive(name, GRADIENT_PRESETS[value] ?? GRADIENT_PRESETS.none);
     else applyCssVarLive(name, value);
   } else if (targetKind === 'config') {
     setConfigOverride(path, value);
+    if (resetScrollFor) resetScrollAbove(resetScrollFor);
   } else if (targetKind === 'textPatch') {
     applyTextPatchLive(patchId, value);
   }
