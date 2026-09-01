@@ -1,0 +1,26 @@
+# Vite's entry HTML references content-hashed asset filenames, so the two
+# need opposite caching policies: index.html must always be revalidated
+# (otherwise a browser can keep serving a stale page pointing at an old,
+# already-deleted JS bundle after a deploy — no Cache-Control header at all
+# meant browsers were falling back to heuristic caching here), while the
+# hashed assets themselves are safe to cache forever since a new build
+# always gets new filenames.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache, must-revalidate"
+  </FilesMatch>
+  <FilesMatch "\.(js|css)$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+</IfModule>
+
+# This app has client-side routes (/calendar, /about) handled by wouter, so a
+# direct navigation or refresh on those paths needs to fall back to
+# index.html rather than 404ing on a file that doesn't exist on disk.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /apps/election-tracker/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . index.html [L]
+</IfModule>
