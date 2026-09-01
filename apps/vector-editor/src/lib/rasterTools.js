@@ -222,3 +222,157 @@ export function cropCanvas(source, rectPx) {
   ctx.drawImage(source, -x, -y);
   return out;
 }
+
+function smoothstep(edge0, edge1, x) {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+function clamp255(v) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+// Exposure/highlights/blacks in one pass, always computed from `source`
+// (an unmodified snapshot of the image at the start of the current editing
+// session) rather than the working canvas, so repeated slider moves
+// recompute a delta from the same starting point instead of compounding.
+export function applyTonalAdjustments(ctx, source, { exposure = 0, highlights = 0, blacks = 0 }) {
+  const { width, height } = source;
+  const srcData = source.getContext('2d').getImageData(0, 0, width, height);
+  const outData = ctx.createImageData(width, height);
+  const src = srcData.data;
+  const out = outData.data;
+  const expMul = Math.pow(2, (exposure / 100) * 3); // slider -100..100 -> -3..+3 EV stops
+  const hAmt = highlights / 100;
+  const bAmt = blacks / 100;
+  for (let i = 0; i < src.length; i += 4) {
+    let r = src[i] * expMul;
+    let g = src[i + 1] * expMul;
+    let b = src[i + 2] * expMul;
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+    // Highlights: scale pixels weighted toward the bright end; negative
+    // recovers blown-out areas, positive boosts them further.
+    const highMask = smoothstep(0.45, 1, lum);
+    const hFactor = 1 + hAmt * highMask * 0.9;
+    r *= hFactor;
+    g *= hFactor;
+    b *= hFactor;
+
+    // Blacks: lift or crush the dark end (the tone-curve black point).
+    const lowMask = 1 - smoothstep(0, 0.55, lum);
+    const bOffset = bAmt * lowMask * 90;
+    r += bOffset;
+    g += bOffset;
+    b += bOffset;
+
+    out[i] = clamp255(r);
+    out[i + 1] = clamp255(g);
+    out[i + 2] = clamp255(b);
+    out[i + 3] = src[i + 3];
+  }
+  ctx.putImageData(outData, 0, 0);
+}
+
+// 3x3 median filter — the standard cheap way to knock down per-pixel grain
+// while preserving edges much better than a box/gaussian blur would.
+function medianFilter3x3(imageData) {
+  const { data, width, height } = imageData;
+  const src = new Uint8ClampedArray(data);
+  const out = new Uint8ClampedArray(data.length);
+  const rBuf = new Uint8ClampedArray(9);
+  const gBuf = new Uint8ClampedArray(9);
+  const bBuf = new Uint8ClampedArray(9);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const yy = Math.min(height - 1, Math.max(0, y + dy));
+        for (let dx = -1; dx <= 1; dx++) {
+          const xx = Math.min(width - 1, Math.max(0, x + dx));
+          const idx = (yy * width + xx) * 4;
+          rBuf[n] = src[idx];
+          gBuf[n] = src[idx + 1];
+          bBuf[n] = src[idx + 2];
+          n++;
+        }
+      }
+      rBuf.sort();
+      gBuf.sort();
+      bBuf.sort();
+      const idx = (y * width + x) * 4;
+      out[idx] = rBuf[4];
+      out[idx + 1] = gBuf[4];
+      out[idx + 2] = bBuf[4];
+      out[idx + 3] = src[idx + 3];
+    }
+  }
+  return new ImageData(out, width, height);
+}
+
+// strength 0-100 -> 1-3 median passes.
+export function reduceNoise(ctx, strength) {
+  const { width, height } = ctx.canvas;
+  const passes = Math.max(1, Math.min(3, Math.round(1 + (strength / 100) * 2)));
+  let imgData = ctx.getImageData(0, 0, width, height);
+  for (let p = 0; p < passes; p++) {
+    imgData = medianFilter3x3(imgData);
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// Blurs `source` for the bokeh background pass. Blurring is done on a small
+// downscaled copy (cheap) and the result is drawn back up at full size —
+// the browser's bilinear upscale doubles as a soft gaussian-like smoothing,
+// which both keeps this fast on large photos and looks better than a
+// blocky full-res box blur.
+function softBlurCanvas(source, strength) {
+  const { width, height } = source;
+  const maxEdge = 480;
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  const sw = Math.max(1, Math.round(width * scale));
+  const sh = Math.max(1, Math.round(height * scale));
+  const small = document.createElement('canvas');
+  small.width = sw;
+  small.height = sh;
+  const sctx = small.getContext('2d');
+  sctx.drawImage(source, 0, 0, sw, sh);
+  const passes = Math.max(1, Math.round(1 + (strength / 100) * 5));
+  const imgData = sctx.getImageData(0, 0, sw, sh);
+  boxBlurInPlace(imgData, passes);
+  sctx.putImageData(imgData, 0, 0);
+
+  const big = document.createElement('canvas');
+  big.width = width;
+  big.height = height;
+  const bctx = big.getContext('2d');
+  bctx.imageSmoothingEnabled = true;
+  bctx.imageSmoothingQuality = 'high';
+  bctx.drawImage(small, 0, 0, width, height);
+  return big;
+}
+
+// Depth-of-field style "bokeh" background: keeps a feathered circular focus
+// region sharp and blurs everything outside it. Not ML subject
+// segmentation — same pragmatic tradeoff as the color-key background
+// removal above — so it works best when the subject is roughly centered.
+export function applyBokeh(ctx, source, { focusX, focusY, radius, feather, strength }) {
+  const { width, height } = source;
+  const blurred = softBlurCanvas(source, strength);
+  ctx.clearRect(0, 0, width, height);
+  ctx.drawImage(blurred, 0, 0);
+
+  const sharpMasked = document.createElement('canvas');
+  sharpMasked.width = width;
+  sharpMasked.height = height;
+  const mctx = sharpMasked.getContext('2d');
+  mctx.drawImage(source, 0, 0);
+  mctx.globalCompositeOperation = 'destination-in';
+  const grad = mctx.createRadialGradient(focusX, focusY, Math.max(0, radius - feather), focusX, focusY, radius);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  mctx.fillStyle = grad;
+  mctx.fillRect(0, 0, width, height);
+
+  ctx.drawImage(sharpMasked, 0, 0);
+}

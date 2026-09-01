@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useDoc } from '../state/DocumentContext.jsx';
 import { Field, RangeField } from './ui/field.jsx';
+import ImageAdjustPanel from './ImageAdjustPanel.jsx';
 
 const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge'];
 const FONTS = ['system-ui, sans-serif', 'Georgia, serif', '"Courier New", monospace', 'Impact, sans-serif'];
@@ -202,6 +203,7 @@ export default function PropertiesPanel() {
             onClick={() => window.__vectorStudio?.runRemoveBackground()}>
             <Wand2 /> Remove background (auto)
           </button>
+          <ImageAdjustPanel image={single} />
         </>
       )}
 
