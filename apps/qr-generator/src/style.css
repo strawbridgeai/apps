@@ -1,0 +1,100 @@
+/* Tailwind utilities only (theme.css + utilities.css) — deliberately
+   skipping tailwindcss/preflight.css, whose global reset would clobber
+   this file's hand-written base styles, matching the sibling apps. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* "Sunlit solarpunk" — matches the landing page + sibling apps' palette:
+   pale sage-cream ground, leaf-green + turquoise accents, sun-gold reserved
+   for rare highlights. Token block copied from vector-editor/src/style.css. */
+:root {
+  --bg: #f6f7f0;
+  --bg-grad: radial-gradient(ellipse 70% 50% at 15% -10%, rgba(79, 157, 79, 0.14), transparent 60%),
+             radial-gradient(ellipse 60% 45% at 100% 10%, rgba(47, 168, 156, 0.12), transparent 60%);
+  --border: rgba(30, 50, 25, 0.12);
+  --text: #1b2a18;
+  --text-dim: #52624a;
+  --text-faint: #82927a;
+  --accent: #3f8f45;
+  --accent-dim: #2f6f36;
+  --accent-rgb: 63, 143, 69;
+  --accent-2: #24968a;
+  --accent-2-dim: #1c766d;
+  --accent-2-rgb: 36, 150, 138;
+  --gold: #b3ad1f;
+  --gold-rgb: 179, 173, 31;
+  --danger: #c1583f;
+  --card-shadow: 0 1px 1px rgba(60, 90, 50, 0.05), 0 12px 32px rgba(60, 90, 50, 0.12);
+  font-family: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app { min-height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg-grad), var(--bg);
+  color: var(--text);
+}
+
+h1, h2, h3 { font-family: 'Outfit', 'Public Sans', sans-serif; }
+
+.home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  flex: none;
+}
+.home-btn:hover { color: var(--text); border-color: var(--accent); }
+.home-btn svg { width: 16px; height: 16px; }
+
+.field {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 0.6rem 0.8rem;
+  font: inherit;
+  color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.field:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-2) 20%, transparent);
+}
+.field::placeholder { color: var(--text-faint); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 10px;
+  padding: 0.55rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:not(:disabled):hover { background: var(--accent-dim); }
+
+.btn-secondary {
+  background: #fff;
+  color: var(--text);
+  border-color: var(--border);
+}
+.btn-secondary:not(:disabled):hover { border-color: var(--accent-2); color: var(--accent-2-dim); }

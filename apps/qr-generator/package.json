@@ -1,0 +1,28 @@
+{
+  "name": "qr-generator",
+  "displayName": "QR Studio",
+  "description": "Generate a QR code from any link or text, or a Wi-Fi QR guests can scan to join your network with no password typing — entirely client-side, nothing ever leaves the browser.",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "playwright-chromium": "^1.62.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.2.2"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "lucide-react": "^1.35.0",
+    "motion": "^13.1.1",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
