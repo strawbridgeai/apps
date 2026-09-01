@@ -29,6 +29,12 @@ const DEFAULT_TRIGGER = { start: 'top bottom', end: 'top 55%', pin: false };
 // a short slider value still reads as a deliberate, unhurried pin.
 const pinTrigger = (distance) => ({ start: 'top top', end: `+=${Math.max(distance, 20) * 4}`, pin: true });
 
+// Every CSS property any preset ever animates, across all of them - cleared
+// unconditionally before each preset's own tween is set up (see the
+// gsap.set call below for why this needs to be the full union, not just
+// the incoming preset's own properties).
+const ALL_ANIMATABLE_PROPS = 'autoAlpha,opacity,visibility,x,y,scale,clipPath';
+
 const PRESETS = {
   none: null,
   'fade-up': (distance) => ({ from: { autoAlpha: 0, y: distance }, to: { autoAlpha: 1, y: 0 } }),
@@ -76,6 +82,18 @@ export function useScrollReveal(ref, { preset = 'fade-up', distance = 90 } = {})
     const { from, to, targets = 'self', stagger, trigger } = factory(distance);
     const scrollTrigger = { ...DEFAULT_TRIGGER, ...trigger, trigger: ref.current, scrub: 0.5 };
     const tweenTargets = targets === 'children' ? Array.from(ref.current.children) : ref.current;
+    // Switching presets live (Site Designer's preset picker, no page reload
+    // between clicks) can leave inline styles behind from whichever
+    // properties the PREVIOUS preset touched but this one doesn't (e.g.
+    // pin-zoom's opacity/scale lingering after switching to pin-reveal,
+    // which only ever sets clipPath) - ctx.revert() alone wasn't reliably
+    // clearing these when a pinned ScrollTrigger was involved, confirmed by
+    // reproducing the exact click-through-presets sequence. Clearing must
+    // cover every property ANY preset could have left behind (not just
+    // this preset's own from/to keys) and both possible target sets
+    // (container and children), since the previous preset may have used a
+    // different target shape than this one.
+    gsap.set([ref.current, ...Array.from(ref.current.children)], { clearProps: ALL_ANIMATABLE_PROPS });
     const ctx = gsap.context(() => {
       gsap.fromTo(tweenTargets, from, {
         ...to,
