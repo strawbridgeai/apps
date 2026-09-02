@@ -56,6 +56,7 @@ app.innerHTML = `
     <div class="tab-bar">
       <button class="tab-btn active" id="tab-map" type="button">Map</button>
       <button class="tab-btn" id="tab-watches" type="button">Online Watches</button>
+      <button class="tab-btn" id="tab-signals" type="button">Signals</button>
     </div>
 
     <div class="toolbar" id="map-toolbar" style="position:relative;">
@@ -94,6 +95,17 @@ app.innerHTML = `
         </div>
         <button class="btn-primary" id="watch-add-btn" type="button">Watch this link</button>
       </div>
+    </div>
+
+    <div class="signals-view" id="signals-view" hidden>
+      <p class="watches-intro">
+        Early "a restock might be coming" signals — brand-new Target/Best Buy listings (a new product
+        page often appears before the actual on-sale date), plus real-time restock posts from
+        r/PokemonRestocks. The Reddit posts are <strong>community-reported, not verified by this site</strong>
+        — this is the only practical signal for Walmart, since its site blocks automated checks outright.
+        Always confirm on the retailer's own site before making a trip.
+      </p>
+      <div class="signals-list" id="signals-list"></div>
     </div>
 
     <div class="subscribe-panel">
@@ -286,23 +298,31 @@ document.querySelector('#locate-btn').addEventListener('click', () => locate());
 // --- Tabs ---
 const tabMap = document.querySelector('#tab-map');
 const tabWatches = document.querySelector('#tab-watches');
+const tabSignals = document.querySelector('#tab-signals');
 const mapToolbar = document.querySelector('#map-toolbar');
 const trackedListEl = document.querySelector('#tracked-list');
 const mapView = document.querySelector('#map-view');
 const watchesView = document.querySelector('#watches-view');
+const signalsView = document.querySelector('#signals-view');
 
 function showTab(tab) {
   const isMap = tab === 'map';
+  const isWatches = tab === 'watches';
+  const isSignals = tab === 'signals';
   tabMap.classList.toggle('active', isMap);
-  tabWatches.classList.toggle('active', !isMap);
+  tabWatches.classList.toggle('active', isWatches);
+  tabSignals.classList.toggle('active', isSignals);
   mapToolbar.hidden = !isMap;
   trackedListEl.hidden = !isMap;
   mapView.hidden = !isMap;
-  watchesView.hidden = isMap;
+  watchesView.hidden = !isWatches;
+  signalsView.hidden = !isSignals;
   if (isMap) setTimeout(() => mapController.map.invalidateSize(), 50);
+  if (isSignals) loadSignals();
 }
 tabMap.addEventListener('click', () => showTab('map'));
 tabWatches.addEventListener('click', () => showTab('watches'));
+tabSignals.addEventListener('click', () => showTab('signals'));
 
 // --- Online watches tab ---
 async function loadWatches() {
@@ -350,6 +370,64 @@ document.querySelector('#watch-add-btn').addEventListener('click', async () => {
   document.querySelector('#watch-url').value = '';
   await loadWatches();
 });
+
+// --- Signals tab: merged, retailer-badged timeline of the two "restock is
+// coming" sources (see server/poller.js pollRedditSightings/pollNewListings)
+// - only fetched when the tab is actually opened (showTab above), not on a
+// timer like products/watches, since it's a slower-moving feed. ---
+function timeAgoShort(ts) {
+  const mins = Math.round((Date.now() - ts) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  return `${Math.round(mins / 60)}h ago`;
+}
+
+async function loadSignals() {
+  const el = document.querySelector('#signals-list');
+  el.innerHTML = '<p style="color:var(--text-faint);text-align:center;">Loading…</p>';
+  const [sightingsRes, listingsRes] = await Promise.all([
+    fetch(`${API_BASE}/api/sightings`).then((r) => r.json()).catch(() => ({ sightings: [] })),
+    fetch(`${API_BASE}/api/new-listings`).then((r) => r.json()).catch(() => ({ newListings: [] })),
+  ]);
+  const items = [
+    ...(sightingsRes.sightings || []).map((s) => ({
+      kind: 'sighting',
+      retailer: s.retailer,
+      at: s.postedAt,
+      title: s.title,
+      url: s.url,
+    })),
+    ...(listingsRes.newListings || []).map((n) => ({
+      kind: 'listing',
+      retailer: n.retailer,
+      at: n.firstSeenAt,
+      title: n.name,
+      url: null,
+    })),
+  ].sort((a, b) => b.at - a.at);
+
+  if (!items.length) {
+    el.innerHTML =
+      '<p style="color:var(--text-faint);text-align:center;">No signals yet — this fills in as new listings appear or r/PokemonRestocks posts something matching.</p>';
+    return;
+  }
+
+  el.innerHTML = items
+    .map(
+      (it) => `
+      <div class="signal-row">
+        <span class="retailer-tag ${it.retailer}">${RETAILER_META[it.retailer]?.label || it.retailer}</span>
+        <div class="signal-info">
+          <div class="signal-title">${it.url ? `<a href="${escapeHtml(it.url)}" target="_blank" rel="noopener">${escapeHtml(it.title)}</a>` : escapeHtml(it.title)}</div>
+          <div class="signal-meta">
+            ${it.kind === 'sighting' ? '<span class="signal-badge community">community-reported</span>' : '<span class="signal-badge new-listing">new listing</span>'}
+            <span class="signal-time">${timeAgoShort(it.at)}</span>
+          </div>
+        </div>
+      </div>`
+    )
+    .join('');
+}
 
 // --- Email subscribe (subscribes to every tracked product + watch) ---
 document.querySelector('#subscribe-btn').addEventListener('click', async () => {

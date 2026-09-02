@@ -87,4 +87,34 @@ db.exec(`
   );
 `);
 
+// Two "restock is coming" signal sources, independent of the per-product
+// tracked_products/stock_snapshots flow above:
+//  - reddit_sightings: community-reported drops from r/PokemonRestocks,
+//    the only practical Walmart signal (Walmart's own site is behind an
+//    active PerimeterX "press and hold" human-verification challenge that
+//    blocks even a real headless browser on the first request — not
+//    something this app scrapes directly).
+//  - catalog_seen: brand-new Target/Best Buy product listings appearing in
+//    search results, which often predates the actual on-sale/restock date.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS reddit_sightings (
+    post_id TEXT PRIMARY KEY,
+    retailer TEXT NOT NULL,
+    title TEXT NOT NULL,
+    url TEXT NOT NULL,
+    matched_keyword TEXT NOT NULL,
+    posted_at INTEGER NOT NULL,
+    alerted_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS catalog_seen (
+    retailer TEXT NOT NULL,
+    product_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    first_seen_at INTEGER NOT NULL,
+    alerted INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(retailer, product_id)
+  );
+`);
+
 module.exports = { db, DATA_DIR };

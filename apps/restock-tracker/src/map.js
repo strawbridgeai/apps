@@ -12,6 +12,10 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 export const RETAILER_META = {
   bestbuy: { label: 'Best Buy', color: '#24968a' },
   target: { label: 'Target', color: '#b3ad1f' },
+  // Walmart has no per-store stock API here (see server/sources/reddit.js)
+  // so it never appears as a map pin, only in the Signals tab - kept here
+  // anyway so the retailer-tag color/label stays consistent everywhere.
+  walmart: { label: 'Walmart', color: '#3f8f45' },
 };
 
 const PIN_SIZE = 34;

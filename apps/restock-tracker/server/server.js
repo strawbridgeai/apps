@@ -140,6 +140,35 @@ app.delete('/api/watches/:id', writeLimiter, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- restock-is-coming signals ----------
+app.get('/api/sightings', (req, res) => {
+  const rows = db.prepare('SELECT * FROM reddit_sightings ORDER BY posted_at DESC LIMIT 30').all();
+  res.json({
+    sightings: rows.map((r) => ({
+      postId: r.post_id,
+      retailer: r.retailer,
+      title: r.title,
+      url: r.url,
+      matchedKeyword: r.matched_keyword,
+      postedAt: r.posted_at,
+    })),
+  });
+});
+
+app.get('/api/new-listings', (req, res) => {
+  const rows = db
+    .prepare('SELECT * FROM catalog_seen WHERE alerted = 1 ORDER BY first_seen_at DESC LIMIT 30')
+    .all();
+  res.json({
+    newListings: rows.map((r) => ({
+      retailer: r.retailer,
+      productId: r.product_id,
+      name: r.name,
+      firstSeenAt: r.first_seen_at,
+    })),
+  });
+});
+
 // ---------- subscriptions ----------
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

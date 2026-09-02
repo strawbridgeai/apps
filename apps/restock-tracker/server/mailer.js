@@ -36,4 +36,31 @@ function restockEmail({ to, productName, storeName, retailer, buyUrl, unsubscrib
   });
 }
 
-module.exports = { sendMail, restockEmail };
+function sightingEmail({ to, retailer, title, url, unsubscribeUrl }) {
+  return sendMail({
+    to,
+    subject: `Possible restock (${retailer}): ${title}`,
+    text:
+      `Someone on r/PokemonRestocks just posted about a possible ${retailer} restock:\n\n` +
+      `"${title}"\n${url}\n\n` +
+      `This is a community report, not independently verified against ${retailer}'s own site — ` +
+      `double-check it's actually still there before making a trip.\n\n` +
+      `This is an alert only — nothing was purchased on your behalf.\n\n` +
+      `Stop alerts like this: ${unsubscribeUrl}`,
+  });
+}
+
+function newListingEmail({ to, retailer, name, unsubscribeUrl }) {
+  return sendMail({
+    to,
+    subject: `New listing at ${retailer}: ${name}`,
+    text:
+      `A new product just appeared in ${retailer}'s Pokémon TCG search results:\n\n${name}\n\n` +
+      `New listings often show up before the actual on-sale/restock date, so this may not be ` +
+      `purchasable yet — check ${retailer}'s site directly.\n\n` +
+      `This is an alert only — nothing was purchased on your behalf.\n\n` +
+      `Stop alerts like this: ${unsubscribeUrl}`,
+  });
+}
+
+module.exports = { sendMail, restockEmail, sightingEmail, newListingEmail };
