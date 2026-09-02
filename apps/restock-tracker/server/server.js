@@ -20,6 +20,12 @@ const PROVIDERS = { bestbuy, target };
 const POLL_RADIUS_MI = Number(process.env.POLL_RADIUS_MI || 50);
 
 const app = express();
+// Apache reverse-proxies here from loopback only (see systemd unit) and
+// sets X-Forwarded-For - without this, express-rate-limit logs
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and can't tell requests apart by real
+// client IP. 'loopback' (not `true`) so a header spoofed by anyone who
+// somehow reached this process directly isn't blindly trusted.
+app.set('trust proxy', 'loopback');
 app.use(express.json());
 
 app.use((req, res, next) => {
