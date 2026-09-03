@@ -51,7 +51,17 @@
 
 * { box-sizing: border-box; }
 
-html, body { height: 100%; }
+/* The closed detail panel (below) sits off-screen via translateX(100%) with
+   no clipping ancestor — without overflow-x hidden here, that off-screen
+   content can contribute extra horizontal scroll space to the whole page on
+   mobile, letting the viewport drift out of alignment with the intended
+   layout. Reported symptom: tapping a marker opened the panel to "blank
+   empty space" with an unreachable close button — the real panel had slid
+   to its correct position, but the viewport was scrolled to a spot that no
+   longer lined up with it. This app has no legitimate reason to scroll
+   horizontally at all, so this is a safe, global fix, not just band-aiding
+   the one element. */
+html, body { height: 100%; overflow-x: hidden; }
 
 body {
   margin: 0;
@@ -235,6 +245,9 @@ button.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none
   position: relative;
   flex: 1;
   min-height: 0;
+  /* Direct fix at the source — this is the panel's own positioning
+     ancestor, see the html/body comment above for why this matters. */
+  overflow: hidden;
 }
 
 #map {
