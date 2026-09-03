@@ -27,6 +27,27 @@ const MOVE_DEBOUNCE_MS = 700;
 const FALLBACK_CENTER = [39, -106];
 const FALLBACK_ZOOM = 9; // kept conservative so it stays in-budget even on a wide desktop window
 
+// Confirmed report: saved to the iOS home screen (standalone display mode —
+// its own WKWebView, no Safari chrome, no tab history at all) and swiping
+// back with nothing in the page's own history to go to freezes the whole
+// page unresponsive, not just the map. This is a known WebKit standalone-
+// mode gesture bug — the edge-swipe-back recognizer fires with nowhere real
+// to navigate to and WebKit hangs instead of handling that gracefully. Not
+// fixable by making our own code faster/more robust, since the freeze
+// happens at the WebKit level, before any of our JS would even run. The
+// standard workaround: keep a dummy history entry "behind" the current page
+// at all times in standalone mode, so the gesture always has somewhere real
+// to go and absorbs harmlessly instead of hitting a dead end. Regular
+// Safari-tab visits (not standalone) are untouched — this only applies when
+// launched from the home-screen icon.
+const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+if (isStandalone) {
+  history.pushState({ campfinderTrap: true }, '', location.href);
+  window.addEventListener('popstate', () => {
+    history.pushState({ campfinderTrap: true }, '', location.href);
+  });
+}
+
 // Session-scoped "remember where I was" state. On mobile, tapping a marker
 // then hitting the browser back button has been reported to re-prompt for
 // location and leave the map looking frozen — Leaflet + a geolocation call
