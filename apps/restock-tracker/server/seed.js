@@ -5,6 +5,13 @@
 const { db } = require('./db.js');
 
 const SETS = [
+  { id: 'me-pitch-black', name: 'Pitch Black', series: 'Mega Evolution', releaseDate: 'July 17, 2026', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Booster Bundle'], accent: '#4b4b5c' },
+  { id: 'me-chaos-rising', name: 'Chaos Rising', series: 'Mega Evolution', releaseDate: 'May 22, 2026', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Special Illustration Collection'], accent: '#c65bff' },
+  { id: 'me-perfect-order', name: 'Perfect Order', series: 'Mega Evolution', releaseDate: 'March 27, 2026', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Booster Bundle'], accent: '#5bd6ff' },
+  { id: 'me-phantasmal-flames', name: 'Phantasmal Flames', series: 'Mega Evolution', releaseDate: 'November 14, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Binder Collection'], accent: '#ff6b6b' },
+  { id: 'me-mega-evolution', name: 'Mega Evolution', series: 'Mega Evolution', releaseDate: 'September 26, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Mini Tin'], accent: '#ffb703' },
+  { id: 'sv-white-flare', name: 'White Flare', series: 'Scarlet & Violet', releaseDate: 'July 18, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Booster Bundle'], accent: '#fff275' },
+  { id: 'sv-black-bolt', name: 'Black Bolt', series: 'Scarlet & Violet', releaseDate: 'July 18, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Booster Bundle'], accent: '#2b2d42' },
   { id: 'sv-prismatic-evolutions', name: 'Prismatic Evolutions', series: 'Scarlet & Violet', releaseDate: 'January 17, 2025', productTypes: ['Elite Trainer Box', 'Booster Bundle', 'Mini Tin'], accent: '#e9b5ff' },
   { id: 'sv-destined-rivals', name: 'Destined Rivals', series: 'Scarlet & Violet', releaseDate: 'May 30, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Team Rocket Box'], accent: '#ff7a45' },
   { id: 'sv-journey-together', name: 'Journey Together', series: 'Scarlet & Violet', releaseDate: 'March 28, 2025', productTypes: ['Booster Pack', 'Elite Trainer Box', 'Booster Bundle'], accent: '#78d7c7' },
