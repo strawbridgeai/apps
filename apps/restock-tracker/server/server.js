@@ -1,36 +1,31 @@
-// restock-tracker backend: tracks nearby-store stock for a small set of
-// Best Buy/Target products plus arbitrary online-restock-link watches,
-// alerting by email on restock. Public, unauthenticated by design (matches
-// the rest of the apps on this landing page) - there's no login here, just
-// an email address per subscription with an unsubscribe token, same model
-// a mailing list uses.
+// restock-tracker backend: replaces the earlier automated Target/Best Buy
+// polling + email-alert model with a community-submitted stock-report board
+// plus a static store-calling directory, ported from a Replit prototype
+// ("Pokémon Restock Radar", artifacts/api-server/src/routes/restock.ts).
+// No automated retailer polling, no email alerts, no subscriptions - this
+// is intentionally simpler than what it replaced. Public, unauthenticated
+// by design, same as every other app on this landing page.
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { db } = require('./db.js');
-const bestbuy = require('./providers/bestbuy.js');
-const target = require('./providers/target.js');
-const poller = require('./poller.js');
+const { seedIfEmpty } = require('./seed.js');
 
 const PORT = 2013;
-const PROVIDERS = { bestbuy, target };
-const POLL_RADIUS_MI = Number(process.env.POLL_RADIUS_MI || 50);
 
 const app = express();
 // Apache reverse-proxies here from loopback only (see systemd unit) and
-// sets X-Forwarded-For - without this, express-rate-limit logs
-// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR and can't tell requests apart by real
-// client IP. 'loopback' (not `true`) so a header spoofed by anyone who
-// somehow reached this process directly isn't blindly trusted.
+// sets X-Forwarded-For - without this, express-rate-limit can't safely use
+// it to tell requests apart. 'loopback' (not `true`) so a header spoofed by
+// anyone who somehow reached this process directly isn't blindly trusted.
 app.set('trust proxy', 'loopback');
 app.use(express.json());
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
@@ -38,7 +33,7 @@ app.use((req, res, next) => {
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
-const searchLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
+const readLimiter = rateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
 const writeLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: true, legacyHeaders: false });
 
 function badRequest(msg) {
@@ -47,165 +42,164 @@ function badRequest(msg) {
   return e;
 }
 
-// ---------- product search ----------
-app.get('/api/search', searchLimiter, async (req, res) => {
-  const query = String(req.query.q || '').trim();
-  if (!query) return res.status(400).json({ error: 'q is required' });
-  const results = await Promise.allSettled(Object.values(PROVIDERS).map((p) => p.searchProducts(query)));
-  const combined = [];
-  Object.keys(PROVIDERS).forEach((retailer, i) => {
-    if (results[i].status === 'fulfilled') {
-      for (const item of results[i].value) combined.push({ retailer, ...item });
-    } else {
-      console.error(`[search] ${retailer} failed:`, results[i].reason?.message);
-    }
-  });
-  res.json({ results: combined });
+const EARTH_RADIUS_MI = 3958.8;
+function distanceMiles(fromLat, fromLng, toLat, toLng) {
+  const latDelta = ((toLat - fromLat) * Math.PI) / 180;
+  const lngDelta = ((toLng - fromLng) * Math.PI) / 180;
+  const a =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos((fromLat * Math.PI) / 180) * Math.cos((toLat * Math.PI) / 180) * Math.sin(lngDelta / 2) ** 2;
+  return EARTH_RADIUS_MI * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function callWorthiness(chain, distance) {
+  if (chain === 'local') return 'high';
+  if (distance <= 8 && chain !== 'dollar_general') return 'medium';
+  return 'low';
+}
+
+function parseLocationQuery(query) {
+  const lat = Number(query.lat);
+  const lng = Number(query.lng);
+  const radius = Number(query.radius);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || radius <= 0) return null;
+  return { lat, lng, radius };
+}
+
+function storeResponse(store, distance) {
+  return {
+    id: store.id,
+    name: store.name,
+    chain: store.chain,
+    address: store.address,
+    city: store.city,
+    state: store.state,
+    phone: store.phone,
+    lat: store.lat,
+    lng: store.lng,
+    distanceMiles: Number(distance.toFixed(1)),
+    callWorthiness: callWorthiness(store.chain, distance),
+    notes: store.notes,
+  };
+}
+
+function reportResponse(r) {
+  return {
+    id: String(r.id),
+    setId: r.set_id,
+    storeId: r.store_id,
+    status: r.status,
+    productType: r.product_type,
+    reportedAt: new Date(r.reported_at).toISOString(),
+    source: r.source,
+    confidence: r.confidence,
+    note: r.note,
+    reporter: r.reporter ?? undefined,
+  };
+}
+
+// ---------- set catalog ----------
+app.get('/api/sets', readLimiter, (req, res) => {
+  const rows = db.prepare('SELECT * FROM pokemon_sets').all();
+  res.json(rows.map((s) => ({
+    id: s.id,
+    name: s.name,
+    series: s.series,
+    releaseDate: s.release_date,
+    productTypes: JSON.parse(s.product_types),
+    accent: s.accent,
+  })));
 });
 
-// ---------- tracked products ----------
-const insertProduct = db.prepare(`
-  INSERT INTO tracked_products (retailer, product_id, name, image_url, ref_lat, ref_lon, added_at)
-  VALUES (@retailer, @product_id, @name, @image_url, @ref_lat, @ref_lon, @added_at)
-  ON CONFLICT(retailer, product_id) DO NOTHING
-`);
+// ---------- store directory ----------
+app.get('/api/stores', readLimiter, (req, res) => {
+  const loc = parseLocationQuery(req.query);
+  if (!loc) return res.status(400).json({ error: 'Invalid location or radius.' });
+  const stores = db.prepare('SELECT * FROM stores').all();
+  const result = stores
+    .map((s) => storeResponse(s, distanceMiles(loc.lat, loc.lng, s.lat, s.lng)))
+    .filter((s) => s.distanceMiles <= loc.radius)
+    .sort((a, b) => a.distanceMiles - b.distanceMiles);
+  res.json(result);
+});
 
-app.post('/api/products', writeLimiter, async (req, res) => {
+// ---------- stock reports ----------
+function reportsNear(setId, loc) {
+  const rows = db
+    .prepare(
+      `SELECT sr.*, st.lat AS store_lat, st.lng AS store_lng
+       FROM stock_reports sr JOIN stores st ON st.id = sr.store_id
+       WHERE sr.set_id = ? ORDER BY sr.reported_at DESC`
+    )
+    .all(setId);
+  return rows
+    .map((r) => ({ report: r, distance: distanceMiles(loc.lat, loc.lng, r.store_lat, r.store_lng) }))
+    .filter(({ distance }) => distance <= loc.radius);
+}
+
+app.get('/api/reports', readLimiter, (req, res) => {
+  const setId = String(req.query.setId || '');
+  const loc = parseLocationQuery(req.query);
+  const limit = Number(req.query.limit) || 20;
+  if (!setId || !loc) return res.status(400).json({ error: 'Invalid set, location, or radius.' });
+  const rows = reportsNear(setId, loc);
+  res.json(rows.slice(0, limit).map(({ report }) => reportResponse(report)));
+});
+
+app.post('/api/reports', writeLimiter, (req, res) => {
   try {
-    const { retailer, productId, name, imageUrl, lat, lon } = req.body || {};
-    if (!PROVIDERS[retailer]) throw badRequest('Unknown retailer');
-    if (!productId || !name) throw badRequest('productId and name are required');
-    if (typeof lat !== 'number' || typeof lon !== 'number') throw badRequest('lat/lon are required');
+    const { setId, storeId, status, productType, note, reporter } = req.body || {};
+    if (!setId || !storeId || !status || !productType || !note) throw badRequest('Please complete the stock report.');
+    if (!['in_stock', 'limited', 'sold_out', 'unknown'].includes(status)) throw badRequest('Invalid status.');
 
-    insertProduct.run({ retailer, product_id: String(productId), name, image_url: imageUrl || null, ref_lat: lat, ref_lon: lon, added_at: Date.now() });
-    const product = db.prepare('SELECT * FROM tracked_products WHERE retailer = ? AND product_id = ?').get(retailer, String(productId));
+    const set = db.prepare('SELECT id FROM pokemon_sets WHERE id = ?').get(setId);
+    const store = db.prepare('SELECT id FROM stores WHERE id = ?').get(storeId);
+    if (!set || !store) throw badRequest('That set or store could not be found.');
 
-    // Kick off an immediate poll rather than waiting for the next cycle,
-    // so adding a product shows real data right away.
-    poller.pollProduct(product).catch((e) => console.error('[api] initial poll failed:', e.message));
-
-    res.json({ ok: true, product });
+    const reportedAt = Date.now();
+    const info = db
+      .prepare('INSERT INTO stock_reports (set_id, store_id, status, product_type, reported_at, source, confidence, note, reporter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(setId, storeId, status, productType, reportedAt, 'community', 72, note, reporter || null);
+    const created = db.prepare('SELECT * FROM stock_reports WHERE id = ?').get(info.lastInsertRowid);
+    res.status(201).json(reportResponse(created));
   } catch (err) {
     res.status(err.statusCode || 500).json({ error: err.message });
   }
 });
 
-app.get('/api/products', (req, res) => {
-  const products = db.prepare('SELECT * FROM tracked_products ORDER BY added_at DESC').all();
-  const snapshotsFor = db.prepare('SELECT store_id, store_name, lat, lon, in_stock, checked_at FROM stock_snapshots WHERE tracked_product_id = ?');
-  res.json({
-    products: products.map((p) => ({
-      id: p.id,
-      retailer: p.retailer,
-      productId: p.product_id,
-      name: p.name,
-      imageUrl: p.image_url,
-      buyUrl: p.product_url,
-      refLat: p.ref_lat,
-      refLon: p.ref_lon,
-      stores: snapshotsFor.all(p.id).map((s) => ({
-        storeId: s.store_id,
-        storeName: s.store_name,
-        lat: s.lat,
-        lon: s.lon,
-        inStock: !!s.in_stock,
-        checkedAt: s.checked_at,
-      })),
-    })),
-  });
-});
+// ---------- radar summary ----------
+const ACTIVE_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-app.delete('/api/products/:id', writeLimiter, (req, res) => {
-  db.prepare('DELETE FROM tracked_products WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
+app.get('/api/radar', readLimiter, (req, res) => {
+  const setId = String(req.query.setId || '');
+  const loc = parseLocationQuery(req.query);
+  if (!setId || !loc) return res.status(400).json({ error: 'Invalid set, location, or radius.' });
 
-// ---------- online watches ----------
-app.get('/api/watches', (req, res) => {
-  res.json({ watches: db.prepare('SELECT * FROM online_watches ORDER BY added_at DESC').all() });
-});
+  const rows = reportsNear(setId, loc);
+  const now = Date.now();
+  const active = rows.filter(({ report }) => now - report.reported_at <= ACTIVE_WINDOW_MS);
+  const confirmed = active.filter(({ report }) => report.status === 'in_stock' || report.status === 'limited');
+  const top = confirmed.sort(
+    (a, b) => b.report.confidence - a.report.confidence || b.report.reported_at - a.report.reported_at
+  )[0];
 
-app.post('/api/watches', writeLimiter, (req, res) => {
-  try {
-    const { url, label, inStockText } = req.body || {};
-    if (!url || !label) throw badRequest('url and label are required');
-    new URL(url); // throws on malformed input
-    const info = db
-      .prepare('INSERT INTO online_watches (url, label, in_stock_text, added_at) VALUES (?, ?, ?, ?)')
-      .run(url, label, inStockText || null, Date.now());
-    const watch = db.prepare('SELECT * FROM online_watches WHERE id = ?').get(info.lastInsertRowid);
-    poller.pollOnlineWatches().catch((e) => console.error('[api] initial watch poll failed:', e.message));
-    res.json({ ok: true, watch });
-  } catch (err) {
-    res.status(err.statusCode || 400).json({ error: err.message || 'invalid url' });
+  let topSignal = null;
+  if (top) {
+    const store = db.prepare('SELECT name FROM stores WHERE id = ?').get(top.report.store_id);
+    const minutes = Math.max(1, Math.round((now - top.report.reported_at) / 60000));
+    topSignal = `${store?.name || 'Nearby store'} · ${top.distance.toFixed(1)} mi · ${minutes}m ago`;
   }
-});
 
-app.delete('/api/watches/:id', writeLimiter, (req, res) => {
-  db.prepare('DELETE FROM online_watches WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-// ---------- restock-is-coming signals ----------
-app.get('/api/sightings', (req, res) => {
-  const rows = db.prepare('SELECT * FROM reddit_sightings ORDER BY posted_at DESC LIMIT 30').all();
   res.json({
-    sightings: rows.map((r) => ({
-      postId: r.post_id,
-      retailer: r.retailer,
-      title: r.title,
-      url: r.url,
-      matchedKeyword: r.matched_keyword,
-      postedAt: r.posted_at,
-    })),
+    setId,
+    updatedAt: new Date().toISOString(),
+    activeReports: active.length,
+    inStockCount: active.filter(({ report }) => report.status === 'in_stock').length,
+    limitedCount: active.filter(({ report }) => report.status === 'limited').length,
+    soldOutCount: active.filter(({ report }) => report.status === 'sold_out').length,
+    lastConfirmedAt: top ? new Date(top.report.reported_at).toISOString() : null,
+    topSignal,
   });
-});
-
-app.get('/api/new-listings', (req, res) => {
-  const rows = db
-    .prepare('SELECT * FROM catalog_seen WHERE alerted = 1 ORDER BY first_seen_at DESC LIMIT 30')
-    .all();
-  res.json({
-    newListings: rows.map((r) => ({
-      retailer: r.retailer,
-      productId: r.product_id,
-      name: r.name,
-      firstSeenAt: r.first_seen_at,
-    })),
-  });
-});
-
-// ---------- subscriptions ----------
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-app.post('/api/subscribe', writeLimiter, (req, res) => {
-  try {
-    const { email, targetType, targetId } = req.body || {};
-    if (!email || !EMAIL_RE.test(email)) throw badRequest('Valid email is required');
-    if (!['product', 'watch', 'all'].includes(targetType)) throw badRequest('Invalid targetType');
-    const token = crypto.randomBytes(24).toString('hex');
-    db.prepare('INSERT INTO subscriptions (email, target_type, target_id, unsubscribe_token, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      email,
-      targetType,
-      targetType === 'all' ? null : targetId,
-      token,
-      Date.now()
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(err.statusCode || 400).json({ error: err.message });
-  }
-});
-
-app.get('/api/unsubscribe', (req, res) => {
-  const token = String(req.query.token || '');
-  const result = db.prepare('UPDATE subscriptions SET enabled = 0 WHERE unsubscribe_token = ?').run(token);
-  res.setHeader('Content-Type', 'text/html');
-  res.send(
-    result.changes
-      ? '<p>You have been unsubscribed. You can close this tab.</p>'
-      : '<p>That unsubscribe link is not valid (already used, or malformed).</p>'
-  );
 });
 
 // ---------- TLS: matches camping-locator/file-converter exactly ----------
@@ -215,7 +209,8 @@ const options = {
   key: fs.readFileSync(path.join(CERT_DIR, 'webuzo.key')),
 };
 
+seedIfEmpty();
+
 https.createServer(options, app).listen(PORT, '127.0.0.1', () => {
   console.log(`restock-tracker-api listening on https://127.0.0.1:${PORT}`);
-  poller.start();
 });

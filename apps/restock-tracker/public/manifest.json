@@ -1,7 +1,7 @@
 {
   "name": "Restock Radar",
   "short_name": "Restock Radar",
-  "description": "Map of nearby Pokémon TCG stock with email restock alerts.",
+  "description": "Community-reported Pokémon TCG stock sightings and a call-worthy store directory.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
