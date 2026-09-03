@@ -27,6 +27,36 @@ const MOVE_DEBOUNCE_MS = 700;
 const FALLBACK_CENTER = [39, -106];
 const FALLBACK_ZOOM = 9; // kept conservative so it stays in-budget even on a wide desktop window
 
+// Session-scoped "remember where I was" state. On mobile, tapping a marker
+// then hitting the browser back button has been reported to re-prompt for
+// location and leave the map looking frozen — Leaflet + a geolocation call
+// together seem to make some mobile browsers treat this page as ineligible
+// for an instant bfcache restore, so back triggers a real reload instead,
+// which naturally re-runs everything from scratch including the location
+// prompt. Restoring from here instead of blindly re-locating turns that
+// into an instant, seamless restore. sessionStorage (not localStorage) so
+// this doesn't linger into an unrelated later visit — it's cleared when
+// the tab actually closes, same lifetime as the history a back-navigation
+// reload is working around.
+const STORAGE_KEY = 'campfinder:session';
+
+function loadSessionState() {
+  try {
+    return JSON.parse(sessionStorage.getItem(STORAGE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSessionState(patch) {
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loadSessionState(), ...patch }));
+  } catch {
+    // Private-browsing quota or similar — not saving just means this
+    // particular reload won't have anything to restore, same as today.
+  }
+}
+
 const app = document.querySelector('#app');
 app.innerHTML = `
   <div class="app-shell">
@@ -84,10 +114,12 @@ const panelContent = document.querySelector('#panel-content');
 function openPanel(layerKey, item) {
   panelContent.innerHTML = detailHtml(layerKey, item);
   detailPanel.classList.add('open');
+  saveSessionState({ panel: { layerKey, item } });
 }
 
 function closePanel() {
   detailPanel.classList.remove('open');
+  saveSessionState({ panel: null });
 }
 
 document.querySelector('#panel-close').addEventListener('click', closePanel);
@@ -233,6 +265,20 @@ controller.map.on('moveend', () => {
   clearTimeout(moveTimer);
   moveTimer = setTimeout(() => runSearch({ silent: true }), MOVE_DEBOUNCE_MS);
 });
+controller.map.on('moveend', () => {
+  const c = controller.map.getCenter();
+  saveSessionState({ view: { lat: c.lat, lon: c.lng, zoom: controller.map.getZoom() } });
+});
+
+// Some mobile browsers restore this page from bfcache on a back-navigation
+// instead of doing a fresh reload — when that happens, Leaflet can render
+// broken/blank because it last measured its container's size before the
+// page was backgrounded. invalidateSize() forces a fresh measurement.
+// event.persisted is how a bfcache restore is told apart from a normal
+// load (which already sizes correctly on its own, so this is a no-op then).
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) controller.map.invalidateSize();
+});
 
 // getCurrentPosition's own `timeout` option only counts down once the
 // browser actually starts acquiring a position — verified live that Chrome
@@ -296,15 +342,26 @@ getNationalParks()
   .catch((err) => console.error('Failed to load National Parks:', err));
 
 // --- Populate pins on startup, no interaction required ---
-// Try geolocation first (respects layer toggles as-is — renderResults only
-// ever populates the marker groups; visibility is still governed by which
-// groups are on the map). Falls back to a fixed region if location isn't
-// granted/available so the map is never empty on load.
-setStatus('Finding your area…');
-locate({
-  onDone: (ok) => {
-    // Either way, setView fires 'moveend' once the map settles, and the
-    // listener above triggers the search — no direct call needed here.
-    if (!ok) controller.map.setView(FALLBACK_CENTER, FALLBACK_ZOOM);
-  },
-});
+// Prefer restoring exactly where this tab session already was (see
+// STORAGE_KEY above) over re-requesting geolocation — most relevant right
+// after a mobile back-navigation reload, but harmless on any other reload
+// within the same tab too. Only falls through to a fresh geolocation
+// request when there's nothing to restore, same as a first-ever visit.
+const savedState = loadSessionState();
+if (savedState.view) {
+  controller.map.setView([savedState.view.lat, savedState.view.lon], savedState.view.zoom);
+  if (savedState.panel) openPanel(savedState.panel.layerKey, savedState.panel.item);
+} else {
+  // Try geolocation first (respects layer toggles as-is — renderResults only
+  // ever populates the marker groups; visibility is still governed by which
+  // groups are on the map). Falls back to a fixed region if location isn't
+  // granted/available so the map is never empty on load.
+  setStatus('Finding your area…');
+  locate({
+    onDone: (ok) => {
+      // Either way, setView fires 'moveend' once the map settles, and the
+      // listener above triggers the search — no direct call needed here.
+      if (!ok) controller.map.setView(FALLBACK_CENTER, FALLBACK_ZOOM);
+    },
+  });
+}
