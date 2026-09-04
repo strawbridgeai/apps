@@ -57,6 +57,10 @@ h1, h2, h3 { font-family: 'Outfit', 'Public Sans', sans-serif; }
 
 .field {
   width: 100%;
+  /* A textarea's default `cols` gives it an intrinsic min-content width that
+     width:100% does not override, so as a grid/flex item it refused to shrink
+     and pushed the panel past the viewport on a narrow phone. */
+  min-width: 0;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: #fff;

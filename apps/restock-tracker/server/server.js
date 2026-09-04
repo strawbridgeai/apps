@@ -16,11 +16,14 @@ const { seedIfEmpty } = require('./seed.js');
 const PORT = 2013;
 
 const app = express();
-// Apache reverse-proxies here from loopback only (see systemd unit) and
-// sets X-Forwarded-For - without this, express-rate-limit can't safely use
-// it to tell requests apart. 'loopback' (not `true`) so a header spoofed by
-// anyone who somehow reached this process directly isn't blindly trusted.
-app.set('trust proxy', 'loopback');
+// Two trusted hops sit in front of this process: Apache on loopback, and the
+// Cloudflare edge whose IP Apache appends to X-Forwarded-For. 'loopback'
+// skipped only the first, so req.ip resolved to the Cloudflare edge address —
+// and those rotate per connection, which silently scattered every rate-limit
+// bucket (66 sequential reads never tripped a 60/min limit). Counting exactly
+// two hops lands on the real client. Anything a client forges sits further
+// left in the header and is still ignored.
+app.set('trust proxy', 2);
 app.use(express.json());
 
 app.use((req, res, next) => {
@@ -151,6 +154,13 @@ app.post('/api/reports', writeLimiter, (req, res) => {
     const { setId, storeId, status, productType, note, reporter } = req.body || {};
     if (!setId || !storeId || !status || !productType || !note) throw badRequest('Please complete the stock report.');
     if (!['in_stock', 'limited', 'sold_out', 'unknown'].includes(status)) throw badRequest('Invalid status.');
+    // Only `status` was ever checked against an allow-list. `note` and
+    // `reporter` are free text on a public unauthenticated endpoint, so
+    // without a length cap the only ceiling was express.json()'s ~100KB body
+    // limit — every accepted report could write that straight to disk.
+    if (typeof note !== 'string' || note.length > 500) throw badRequest('Note must be 500 characters or fewer.');
+    if (reporter != null && (typeof reporter !== 'string' || reporter.length > 80)) throw badRequest('Name must be 80 characters or fewer.');
+    if (typeof productType !== 'string' || productType.length > 60) throw badRequest('Invalid product type.');
 
     const set = db.prepare('SELECT id FROM pokemon_sets WHERE id = ?').get(setId);
     const store = db.prepare('SELECT id FROM stores WHERE id = ?').get(storeId);

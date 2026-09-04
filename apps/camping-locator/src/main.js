@@ -40,10 +40,26 @@ const FALLBACK_ZOOM = 9; // kept conservative so it stays in-budget even on a wi
 // to go and absorbs harmlessly instead of hitting a dead end. Regular
 // Safari-tab visits (not standalone) are untouched — this only applies when
 // launched from the home-screen icon.
-const isStandalone = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
-if (isStandalone) {
+//
+// Scoped to iOS standalone specifically. `display-mode: standalone` also
+// matches installed PWAs on Android and desktop, which have no such WebKit
+// bug — there, re-pushing on every popstate just made the back button
+// impossible to escape (confirmed: four presses, URL never changed), since
+// the handler re-armed the guard unconditionally with no way out. The freeze
+// being worked around is WebKit-only, so the guard now is too.
+const isIosStandalone =
+  window.navigator.standalone === true &&
+  /iP(hone|ad|od)/.test(window.navigator.platform || window.navigator.userAgent);
+if (isIosStandalone) {
   history.pushState({ campfinderTrap: true }, '', location.href);
+  let lastPop = 0;
   window.addEventListener('popstate', () => {
+    // Two back gestures in quick succession read as a deliberate "get me out
+    // of here", so the second one is allowed through rather than re-armed.
+    const now = Date.now();
+    const deliberate = now - lastPop < 1200;
+    lastPop = now;
+    if (deliberate) return;
     history.pushState({ campfinderTrap: true }, '', location.href);
   });
 }

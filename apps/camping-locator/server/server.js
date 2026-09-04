@@ -7,6 +7,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 
 const PORT = 2012;
 const NPS_API_KEY = process.env.NPS_API_KEY;
@@ -19,6 +20,11 @@ if (!NPS_API_KEY || !RIDB_API_KEY) {
 
 const app = express();
 
+// Apache on loopback, then the Cloudflare edge whose IP Apache appends to
+// X-Forwarded-For — two hops to step back over before req.ip is the real
+// client, which is what the limiter below keys on.
+app.set('trust proxy', 2);
+
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -28,6 +34,16 @@ app.use((req, res, next) => {
 });
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
+
+// These two routes proxy the owner's personal NPS/RIDB government API keys,
+// so every unthrottled call spends real upstream quota that isn't ours to
+// burn. Generous enough that an actual map session never notices.
+const upstreamLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // --- National Parks (NPS) ---
 // Only ~474 NPS units nationwide total — small enough to fetch in full
@@ -77,7 +93,7 @@ async function getParks() {
   return parksCache.data;
 }
 
-app.get('/api/parks', async (req, res) => {
+app.get('/api/parks', upstreamLimiter, async (req, res) => {
   try {
     res.json(await getParks());
   } catch (err) {
@@ -95,7 +111,7 @@ function stripHtml(html) {
   return (html || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-app.get('/api/campgrounds', async (req, res) => {
+app.get('/api/campgrounds', upstreamLimiter, async (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
   const radius = Math.min(parseFloat(req.query.radius) || 25, 60);

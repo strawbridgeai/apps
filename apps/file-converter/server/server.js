@@ -97,6 +97,13 @@ function badRequest(msg) {
 // ---------- app ----------
 const app = express();
 
+// Apache (loopback) then the Cloudflare edge sit in front, so without this
+// every visitor's req.ip was 127.0.0.1 and the convert limiter below became a
+// single global bucket for the whole internet — one person converting 30
+// files locked out everyone else for 15 minutes. Two hops lands on the real
+// client; forged header entries sit further left and are ignored.
+app.set('trust proxy', 2);
+
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');

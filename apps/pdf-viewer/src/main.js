@@ -93,13 +93,26 @@ function updateExtractLabel() {
 fileInput.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   fileInput.value = '';
+  // Per-file, not per-batch: one unreadable PDF (renamed, truncated, 0-byte,
+  // or a non-PDF the picker's `accept` hint didn't stop) used to reject out of
+  // this loop, leaving the status stuck on "Loading …" and silently dropping
+  // the good files selected alongside it, with a reload the only way back.
+  const failed = [];
   for (const file of files) {
     setStatus(`Loading ${file.name}…`);
-    const bytes = await file.arrayBuffer();
-    const pdfDoc = await loadPdf(bytes);
-    addDoc(file.name, bytes, pdfDoc);
+    try {
+      const bytes = await file.arrayBuffer();
+      const pdfDoc = await loadPdf(bytes);
+      addDoc(file.name, bytes, pdfDoc);
+    } catch {
+      failed.push(file.name);
+    }
   }
-  setStatus('');
+  setStatus(
+    failed.length === 0
+      ? ''
+      : `Couldn't read ${failed.length} file${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}`
+  );
   refreshAll();
 });
 

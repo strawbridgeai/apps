@@ -7,7 +7,7 @@ export default function LinkPanel() {
 
   return (
     <div className="grid gap-8 md:grid-cols-2 md:items-start">
-      <div className="flex flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-3">
         <label htmlFor="link-input" className="text-sm font-semibold text-[var(--text)]">
           Link or text
         </label>
