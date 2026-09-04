@@ -11,7 +11,7 @@ export function renderSidebar(container, { onSelectionChange, onActivate } = {})
   if (state.pages.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
-    empty.textContent = 'Load one or more PDF files to get started.';
+    empty.textContent = 'Load PDFs or images to get started — images become pages you can reorder and export as one PDF.';
     container.appendChild(empty);
     return;
   }

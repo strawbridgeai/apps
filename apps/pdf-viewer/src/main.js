@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import ShimmerText from './components/ShimmerText.jsx';
 import { Badge } from './components/ui/badge.jsx';
 import { loadPdf } from './pdf/pdfSetup.js';
+import { imageToPdfBytes, isImageFile } from './pdf/imageToPdf.js';
 import { state, addDoc } from './state.js';
 import { renderSidebar } from './ui/sidebar.js';
 import { renderMainView, renderEmptyMainView } from './ui/mainView.js';
@@ -27,8 +28,8 @@ app.innerHTML = `
       </div>
       <div class="header-actions">
         <label class="btn-primary file-btn">
-          Add PDF(s)
-          <input type="file" id="file-input" accept="application/pdf" multiple hidden />
+          Add PDFs or images
+          <input type="file" id="file-input" accept="application/pdf,image/*" multiple hidden />
         </label>
         <button class="btn-sm" id="autosort-btn">Auto-sort by page number</button>
         <button class="btn-sm" id="watermark-btn">Watermark…</button>
@@ -101,7 +102,9 @@ fileInput.addEventListener('change', async (e) => {
   for (const file of files) {
     setStatus(`Loading ${file.name}…`);
     try {
-      const bytes = await file.arrayBuffer();
+      // An image is converted to a one-page PDF first, so from here on it is
+      // just another document and needs no special handling anywhere else.
+      const bytes = isImageFile(file) ? await imageToPdfBytes(file) : await file.arrayBuffer();
       const pdfDoc = await loadPdf(bytes);
       addDoc(file.name, bytes, pdfDoc);
     } catch {
