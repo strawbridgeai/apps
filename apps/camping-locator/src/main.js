@@ -6,6 +6,7 @@ import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
 import { queryCampgrounds } from './ridb.js';
+import { meetingSummary } from './meetingPoint.js';
 
 // Guard against enormous/expensive queries against a shared free API — past
 // this, tiling (see overpass.js) stops being enough and we ask the user to
@@ -113,11 +114,20 @@ app.innerHTML = `
     <div class="toolbar">
       <div class="layer-toggles" id="layer-toggles"></div>
       <button id="search-btn" class="btn-primary shrink-0" type="button">Search this area</button>
+      <button id="plot-mode-btn" class="ghost-btn shrink-0" type="button" aria-pressed="false">🏠 Add homes</button>
       <span id="status" class="status" role="status"></span>
     </div>
 
     <div class="map-area">
       <div id="map"></div>
+      <aside id="meeting-panel" class="meeting-panel" hidden>
+        <div class="meeting-head">
+          <strong>Meeting point</strong>
+          <button id="meeting-clear" class="meeting-clear" type="button">Clear all</button>
+        </div>
+        <ol id="meeting-list" class="meeting-list"></ol>
+        <p id="meeting-summary" class="meeting-summary"></p>
+      </aside>
       <aside id="detail-panel" class="detail-panel">
         <button id="panel-close" class="panel-close" type="button" aria-label="Close">&times;</button>
         <div id="panel-content"></div>
@@ -162,7 +172,89 @@ function closePanel() {
 document.querySelector('#panel-close').addEventListener('click', closePanel);
 
 const controller = createMapController(document.querySelector('#map'), { onMarkerSelect: openPanel });
-controller.map.on('click', closePanel);
+
+// --- Home plots + fair meeting point ---
+const plotModeBtn = document.querySelector('#plot-mode-btn');
+const meetingPanel = document.querySelector('#meeting-panel');
+const meetingList = document.querySelector('#meeting-list');
+const meetingSummaryEl = document.querySelector('#meeting-summary');
+
+let plotMode = false;
+let plots = loadSessionState().plots || [];
+
+function setPlotMode(on) {
+  plotMode = on;
+  plotModeBtn.setAttribute('aria-pressed', String(on));
+  plotModeBtn.classList.toggle('is-active', on);
+  document.querySelector('#map').classList.toggle('plot-cursor', on);
+  plotModeBtn.textContent = on ? '🏠 Click the map…' : '🏠 Add homes';
+}
+
+function renderMeeting() {
+  saveSessionState({ plots });
+  controller.renderPlots(plots, {
+    onPlotClick: (index, point) => {
+      plots[index] = { ...plots[index], point };
+      renderMeeting();
+    },
+  });
+
+  const summary = plots.length >= 2 ? meetingSummary(plots.map((p) => p.point)) : null;
+  controller.renderMeeting(summary, plots);
+
+  meetingPanel.hidden = plots.length === 0;
+  meetingList.innerHTML = plots
+    .map(
+      (p, i) => `<li>
+        <span class="meeting-num">${i + 1}</span>
+        <span class="meeting-label">${p.label}</span>
+        <span class="meeting-dist">${summary ? `${summary.distances[i].toFixed(1)} mi` : ''}</span>
+        <button class="meeting-remove" data-remove="${i}" type="button" aria-label="Remove ${p.label}">&times;</button>
+      </li>`
+    )
+    .join('');
+
+  if (!summary) {
+    meetingSummaryEl.textContent =
+      plots.length === 1 ? 'Add one more home to find the halfway point.' : '';
+    return;
+  }
+  meetingSummaryEl.textContent = summary.exact
+    ? `Exact halfway point — ${summary.max.toFixed(1)} mi each.`
+    : `Closest to even for ${plots.length} homes: ${summary.min.toFixed(1)}–${summary.max.toFixed(1)} mi (${summary.spread.toFixed(1)} mi apart).`;
+}
+
+function addPlot(point) {
+  plots.push({ point, label: `Home ${plots.length + 1}` });
+  renderMeeting();
+  if (plots.length === 2) controller.fitPlots(plots);
+}
+
+plotModeBtn.addEventListener('click', () => setPlotMode(!plotMode));
+
+meetingList.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-remove]');
+  if (!btn) return;
+  plots.splice(Number(btn.dataset.remove), 1);
+  plots = plots.map((p, i) => ({ ...p, label: `Home ${i + 1}` }));
+  renderMeeting();
+});
+
+document.querySelector('#meeting-clear').addEventListener('click', () => {
+  plots = [];
+  setPlotMode(false);
+  renderMeeting();
+});
+
+controller.map.on('click', (e) => {
+  if (plotMode) {
+    addPlot([e.latlng.lat, e.latlng.lng]);
+    return;
+  }
+  closePanel();
+});
+
+renderMeeting();
 
 function toggleChecked(key) {
   return toggleContainer.querySelector(`input[data-layer="${key}"]`)?.checked ?? false;

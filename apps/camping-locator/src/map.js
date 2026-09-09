@@ -132,6 +132,30 @@ export function detailHtml(layerKey, item) {
   `;
 }
 
+// Home plots and the meeting point are deliberately outside LAYER_META: they
+// are user-placed, never clustered, and must stay put across the searches that
+// clear and repopulate every other layer.
+const PLOT_COLOR = '#b5653f';
+const MEETING_COLOR = '#3f6b45';
+
+function plotIcon(index) {
+  return L.divIcon({
+    className: 'camp-marker',
+    html: `<span class="camp-marker-dot plot-marker" style="background:${PLOT_COLOR}">${index + 1}</span>`,
+    iconSize: [PIN_SIZE, PIN_SIZE],
+    iconAnchor: [PIN_SIZE / 2, PIN_SIZE / 2],
+  });
+}
+
+function meetingIcon() {
+  return L.divIcon({
+    className: 'camp-marker',
+    html: `<span class="camp-marker-dot meeting-marker" style="background:${MEETING_COLOR}">★</span>`,
+    iconSize: [PIN_SIZE + 6, PIN_SIZE + 6],
+    iconAnchor: [(PIN_SIZE + 6) / 2, (PIN_SIZE + 6) / 2],
+  });
+}
+
 export function createMapController(container, { onMarkerSelect } = {}) {
   const map = L.map(container, { zoomControl: true }).setView([39.5, -98.35], 4); // center of contiguous US
 
@@ -212,5 +236,71 @@ export function createMapController(container, { onMarkerSelect } = {}) {
     return { south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast() };
   }
 
-  return { map, groups, renderResults, setNationalParks, setLayerVisible, getBounds };
+  // A plain layer group, not a cluster group: two homes merging into a single
+  // "2" bubble would hide exactly the thing the user is trying to position.
+  const plotLayer = L.layerGroup().addTo(map);
+  const meetingLayer = L.layerGroup().addTo(map);
+
+  function renderPlots(plots, { onPlotClick } = {}) {
+    plotLayer.clearLayers();
+    plots.forEach((plot, i) => {
+      const marker = L.marker(plot.point, { icon: plotIcon(i), draggable: true });
+      marker.bindTooltip(`<div class="camp-tooltip"><strong>${escapeHtml(plot.label)}</strong></div>`, {
+        direction: 'top',
+        offset: [0, -PIN_SIZE / 2],
+        className: 'camp-tooltip-wrap',
+      });
+      marker.on('click', (e) => L.DomEvent.stopPropagation(e));
+      marker.on('dragend', (e) => {
+        const { lat, lng } = e.target.getLatLng();
+        onPlotClick?.(i, [lat, lng]);
+      });
+      plotLayer.addLayer(marker);
+    });
+  }
+
+  function renderMeeting(summary, plots) {
+    meetingLayer.clearLayers();
+    if (!summary) return;
+
+    // One spoke per person. With exactly two homes the two spokes are
+    // collinear, so this reads as the single connecting line through the
+    // halfway point without needing a separate case.
+    plots.forEach((plot, i) => {
+      L.polyline([summary.point, plot.point], {
+        color: MEETING_COLOR,
+        weight: 2,
+        opacity: 0.7,
+        dashArray: '6 6',
+      })
+        .bindTooltip(`${summary.distances[i].toFixed(1)} mi`, { sticky: true, className: 'camp-tooltip-wrap' })
+        .addTo(meetingLayer);
+    });
+
+    L.marker(summary.point, { icon: meetingIcon(), zIndexOffset: 1000 })
+      .bindTooltip(
+        `<div class="camp-tooltip"><strong>Meeting point</strong><br>${
+          summary.exact ? 'Exact halfway point' : `Within ${summary.spread.toFixed(1)} mi of even`
+        }</div>`,
+        { direction: 'top', offset: [0, -PIN_SIZE / 2], className: 'camp-tooltip-wrap' }
+      )
+      .addTo(meetingLayer);
+  }
+
+  function fitPlots(plots) {
+    if (plots.length < 2) return;
+    map.fitBounds(L.latLngBounds(plots.map((p) => p.point)).pad(0.25));
+  }
+
+  return {
+    map,
+    groups,
+    renderResults,
+    setNationalParks,
+    setLayerVisible,
+    getBounds,
+    renderPlots,
+    renderMeeting,
+    fitPlots,
+  };
 }
