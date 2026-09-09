@@ -159,8 +159,21 @@ function meetingIcon() {
 export function createMapController(container, { onMarkerSelect } = {}) {
   const map = L.map(container, { zoomControl: true }).setView([39.5, -98.35], 4); // center of contiguous US
 
+  // Still OSM's own tiles. CARTO's and Stadia's lighter basemaps are faster
+  // (measured ~34ms/tile against OSM's ~240ms from this host) but both now
+  // require an API key — their keyless tiles still return HTTP 200 with a
+  // plausible payload, just stamped "API KEY REQUIRED" across the image, so
+  // a status-code check alone will not catch it. Of the genuinely keyless
+  // options measured here (OSM.de 685ms, Esri Light Gray 399ms) none beat
+  // this one, so the win available without signing up is fetching fewer
+  // tiles rather than faster ones.
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
+    // On mobile, skip tiles for every intermediate frame of a pan/fling and
+    // load only the view actually landed on.
+    updateWhenIdle: L.Browser.mobile,
+    // One ring of offscreen tiles instead of Leaflet's default two.
+    keepBuffer: 1,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   }).addTo(map);
 
