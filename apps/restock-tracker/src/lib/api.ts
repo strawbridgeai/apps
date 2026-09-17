@@ -14,6 +14,25 @@ export interface PokemonSet {
   releaseDate: string;
   productTypes: string[];
   accent: string;
+  // Added when the catalog stopped being a hardcoded seed and started
+  // syncing itself from the upstream set feed. Optional so a client built
+  // against the older backend (or a Cloudflare Pages copy deployed ahead of
+  // a backend restart) still renders instead of throwing on undefined.
+  releaseIso?: string | null;
+  status?: 'released' | 'upcoming';
+  isNew?: boolean;
+  autoAdded?: boolean;
+  cardCount?: number | null;
+}
+
+export interface SetSyncStatus {
+  enabled: boolean;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastStatus: string | null;
+  lastAdded: number;
+  catalogSize: number;
+  autoAdded: number;
 }
 
 export interface Store {
@@ -69,6 +88,12 @@ async function getJson<T>(path: string, params: Record<string, string | number>)
 export const fetchSets = (): Promise<PokemonSet[]> =>
   fetch('api/sets').then((r) => {
     if (!r.ok) throw new Error('Failed to load sets');
+    return r.json();
+  });
+
+export const fetchSyncStatus = (): Promise<SetSyncStatus> =>
+  fetch('api/sets/sync-status').then((r) => {
+    if (!r.ok) throw new Error('Failed to load catalog status');
     return r.json();
   });
 

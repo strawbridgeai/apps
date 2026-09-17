@@ -12,6 +12,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { db } = require('./db.js');
 const { seedIfEmpty } = require('./seed.js');
+const { syncStatus, startSetSync } = require('./set-sync.js');
 
 const PORT = 2013;
 
@@ -102,8 +103,36 @@ function reportResponse(r) {
 }
 
 // ---------- set catalog ----------
+// New sets arrive here on their own, pulled from the upstream feed by
+// set-sync.js - the catalog is no longer just whatever seed.js hardcoded.
+// Two consequences for this route: the order has to be deliberate (a set
+// that released this week is the one being hunted, so it goes first, and
+// unordered SELECT output would bury it), and a client needs to be able to
+// tell an arrival from the back catalog, hence isNew/status.
+// "New" has to mean the release is new, not the row. The first cut keyed it
+// off added_at alone, which badged Paradox Rift and My First Battle as New
+// on the day the sync backfilled them - sets from 2023. Both conditions are
+// required: the sync noticed it recently AND it is actually a current
+// release (or not out yet).
+const NEW_ROW_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+const NEW_RELEASE_WINDOW_DAYS = 30;
+
+function isNewArrival(row, now, today) {
+  if (!row.added_at || now - row.added_at > NEW_ROW_WINDOW_MS) return false;
+  if (!row.release_iso) return false;
+  if (row.release_iso > today) return true;   // announced, not shipped
+  const cutoff = new Date(now - NEW_RELEASE_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return row.release_iso >= cutoff;
+}
+
 app.get('/api/sets', readLimiter, (req, res) => {
-  const rows = db.prepare('SELECT * FROM pokemon_sets').all();
+  // release_iso is nullable in principle (a row hand-inserted without one),
+  // so sort those last rather than letting NULL win the DESC ordering.
+  const rows = db
+    .prepare("SELECT * FROM pokemon_sets ORDER BY COALESCE(release_iso, '0000-00-00') DESC, name ASC")
+    .all();
+  const now = Date.now();
+  const today = new Date().toISOString().slice(0, 10);
   res.json(rows.map((s) => ({
     id: s.id,
     name: s.name,
@@ -111,7 +140,25 @@ app.get('/api/sets', readLimiter, (req, res) => {
     releaseDate: s.release_date,
     productTypes: JSON.parse(s.product_types),
     accent: s.accent,
+    releaseIso: s.release_iso || null,
+    // 'upcoming' is a real state now: the feed carries announced sets, and
+    // there is no point telling someone to go call stores about a set that
+    // has not shipped.
+    status: s.release_iso && s.release_iso > today ? 'upcoming' : 'released',
+    isNew: isNewArrival(s, now, today),
+    autoAdded: s.source === 'tcgdex',
+    cardCount: s.card_count ?? null,
   })));
+});
+
+// Lets the catalog page say when it last heard from the feed, so a stale
+// catalog is visible as stale instead of just looking like a short list.
+// Read-only counters only - no way to trigger a sync from the public API
+// (that is the sync-sets.js CLI), since this whole backend is
+// unauthenticated by design and an outbound-fetch trigger is not something
+// to hand to anonymous callers.
+app.get('/api/sets/sync-status', readLimiter, (req, res) => {
+  res.json(syncStatus());
 });
 
 // ---------- store directory ----------
@@ -220,6 +267,7 @@ const options = {
 };
 
 seedIfEmpty();
+startSetSync();
 
 https.createServer(options, app).listen(PORT, '127.0.0.1', () => {
   console.log(`restock-tracker-api listening on https://127.0.0.1:${PORT}`);

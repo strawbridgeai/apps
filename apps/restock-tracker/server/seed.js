@@ -2,7 +2,7 @@
 // artifacts/api-server/src/routes/restock.ts - a NYC watch zone so the app
 // has a meaningful first preview before any real community reports exist.
 // Only runs once: skipped whenever pokemon_sets already has rows.
-const { db } = require('./db.js');
+const { db, humanDateToIso } = require('./db.js');
 
 const SETS = [
   { id: 'me-ascended-heroes', name: 'Ascended Heroes', series: 'Mega Evolution', releaseDate: 'January 30, 2026', productTypes: ['Elite Trainer Box', 'Mini Tin', 'Poster Collection'], accent: '#7cf5c4' },
@@ -68,12 +68,21 @@ function seedIfEmpty() {
   const existing = db.prepare('SELECT id FROM pokemon_sets LIMIT 1').get();
   if (existing) return;
 
-  const insertSet = db.prepare('INSERT INTO pokemon_sets (id, name, series, release_date, product_types, accent) VALUES (@id, @name, @series, @releaseDate, @productTypes, @accent)');
+  // release_iso and added_at are filled in here rather than left to db.js's
+  // backfill, which runs at require time - i.e. before this function is ever
+  // called. On an existing database the backfill covers these rows; on a
+  // brand-new one it finds an empty table, so seeding without them left all
+  // 15 rows with a NULL sort key and the catalog fell back to name order
+  // until the first successful upstream sync repaired it.
+  //
+  // added_at is 0, not now(): these are the back catalog, and stamping them
+  // with the install time would badge all 15 as "New" on a fresh deploy.
+  const insertSet = db.prepare('INSERT INTO pokemon_sets (id, name, series, release_date, product_types, accent, release_iso, source, added_at) VALUES (@id, @name, @series, @releaseDate, @productTypes, @accent, @releaseIso, \'seed\', 0)');
   const insertStore = db.prepare('INSERT INTO stores (id, name, chain, address, city, state, phone, lat, lng, notes) VALUES (@id, @name, @chain, @address, @city, @state, @phone, @lat, @lng, @notes)');
   const insertReport = db.prepare('INSERT INTO stock_reports (set_id, store_id, status, product_type, reported_at, source, confidence, note, reporter) VALUES (@setId, @storeId, @status, @productType, @reportedAt, @source, @confidence, @note, @reporter)');
 
   const seedAll = db.transaction(() => {
-    for (const s of SETS) insertSet.run({ ...s, productTypes: JSON.stringify(s.productTypes) });
+    for (const s of SETS) insertSet.run({ ...s, productTypes: JSON.stringify(s.productTypes), releaseIso: humanDateToIso(s.releaseDate) });
     for (const s of STORES) insertStore.run(s);
     for (const r of REPORTS) insertReport.run(r);
   });
