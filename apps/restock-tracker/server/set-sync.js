@@ -357,10 +357,11 @@ function syncStatus() {
 // Interval is deliberately not a systemd timer: the service is already a
 // long-running process holding this SQLite file, so an in-process schedule
 // needs no second unit, no second copy of the env, and no separate writer.
-const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
-// Sets drop at retail in the morning; a first check a minute after boot plus
-// every 6 hours means a release-day set appears the same day without anyone
-// touching the box.
+// Hourly rather than the original 6h. A steady-state run is one HTTP request
+// and ~250ms because every verdict is cached, so the cost of checking more
+// often is close to nothing, and 6h meant a set that went up mid-morning
+// could sit unnoticed until the afternoon.
+const DEFAULT_INTERVAL_MS = Number(process.env.SET_SYNC_INTERVAL_MS) || 60 * 60 * 1000;
 const BOOT_DELAY_MS = 60 * 1000;
 
 function startSetSync() {
@@ -368,7 +369,7 @@ function startSetSync() {
     console.log('[set-sync] disabled via SET_SYNC_ENABLED=0');
     return;
   }
-  const intervalMs = Number(process.env.SET_SYNC_INTERVAL_MS || DEFAULT_INTERVAL_MS);
+  const intervalMs = DEFAULT_INTERVAL_MS;
   const run = () => {
     // Never let a sync failure reach the process: an unreachable upstream
     // must degrade to "catalog is stale", not a restart loop that also takes

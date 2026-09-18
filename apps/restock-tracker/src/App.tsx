@@ -2,13 +2,13 @@ import { createContext, useContext, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider, useMutation, useQuery } from '@tanstack/react-query';
 import {
-  createReport, fetchRadar, fetchReports, fetchSets, fetchStores, fetchSyncStatus,
-  type PokemonSet, type StockReport, type Store,
+  createReport, fetchRadar, fetchReports, fetchRetailStatus, fetchSets, fetchSignals, fetchStores, fetchSyncStatus,
+  type PokemonSet, type RetailSignal, type StockReport, type Store,
 } from '@/lib/api';
 import {
-  ArrowRight, Bell, Check, ChevronDown, CircleAlert, Clock, Crosshair, Flag,
-  LocateFixed, MapPin, Menu, Navigation, Phone, Radio, RefreshCw, Search,
-  ShieldCheck, SlidersHorizontal, Sparkles, Target, X,
+  ArrowRight, Bell, Check, ChevronDown, CircleAlert, Clock, Crosshair, ExternalLink,
+  Flag, LocateFixed, MapPin, Menu, Navigation, Phone, Radio, RefreshCw, Search,
+  ShieldCheck, SlidersHorizontal, Sparkles, Target, X, Zap,
 } from 'lucide-react';
 import { Link, Route, Router as WouterRouter, Switch, useLocation } from 'wouter';
 import { Toaster } from '@/components/ui/toaster';
@@ -16,6 +16,18 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import ShimmerText from '@/components/ShimmerText';
 import './index.css';
+
+// The set catalog had no refetch policy at all, so a set the backend added on
+// its own only ever reached a tab that was reloaded. Every fetchSets caller
+// shares these options via the query key defaults.
+const SETS_QUERY = {
+  queryKey: ['sets'] as const,
+  queryFn: fetchSets,
+  refetchInterval: 10 * 60_000,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
+  staleTime: 60_000,
+};
 
 const queryClient = new QueryClient();
 const DEFAULT_LOCATION = { lat: 40.7128, lng: -74.006, label: 'New York, NY' };
@@ -130,7 +142,7 @@ function App() {
 function Frame({ children }: { children: ReactNode }) {
   const [path] = useLocation();
   const [menu, setMenu] = useState(false);
-  const query = useQuery({ queryKey: ['sets'], queryFn: fetchSets });
+  const query = useQuery(SETS_QUERY);
   const availableSets = query.data || [];
   const [selectedSetId, setSelectedSetId] = useState(() => localStorage.getItem('radar-set') || '');
   const selected = pickActiveSet(availableSets, selectedSetId);
@@ -252,21 +264,72 @@ function Worth({ value }: { value: Store['callWorthiness'] }) {
 
 function Dashboard() {
   const { selectedSetId } = useContext(SetContext);
-  const setsQuery = useQuery({ queryKey: ['sets'], queryFn: fetchSets });
+  const setsQuery = useQuery(SETS_QUERY);
   const sets = setsQuery.data || [];
   const active = pickActiveSet(sets, selectedSetId);
   const { place, locate } = useContext(PlaceContext);
   const [radius, setRadius] = useState(25);
   const params = useMemo(() => ({ setId: active?.id || '', lat: place.lat, lng: place.lng, radius }), [active?.id, place.lat, place.lng, radius]);
   const reportsParams = useMemo(() => ({ ...params, limit: 8 }), [params]);
-  const radar = useQuery({ queryKey: ['radar', params], queryFn: () => fetchRadar(params), enabled: Boolean(active?.id), refetchInterval: 60_000, refetchOnWindowFocus: true });
-  const reports = useQuery({ queryKey: ['reports', reportsParams], queryFn: () => fetchReports(reportsParams), enabled: Boolean(active?.id), refetchInterval: 60_000, refetchOnWindowFocus: true });
+  // 30s, and refetchIntervalInBackground so a tab left open on the radar
+  // keeps current - a restock window is often shorter than the 60s this used
+  // to wait, and React Query pauses plain intervals on a hidden tab, so the
+  // first read after switching back could be a full minute stale.
+  const radar = useQuery({ queryKey: ['radar', params], queryFn: () => fetchRadar(params), enabled: Boolean(active?.id), refetchInterval: 30_000, refetchIntervalInBackground: true, refetchOnWindowFocus: true, refetchOnReconnect: true });
+  const reports = useQuery({ queryKey: ['reports', reportsParams], queryFn: () => fetchReports(reportsParams), enabled: Boolean(active?.id), refetchInterval: 30_000, refetchIntervalInBackground: true, refetchOnWindowFocus: true, refetchOnReconnect: true });
   const stores = useQuery({ queryKey: ['stores', { lat: place.lat, lng: place.lng, radius }], queryFn: () => fetchStores({ lat: place.lat, lng: place.lng, radius }) });
-  return <><Intro eyebrow="Signal dashboard" title="Where should you look next?" description="A live read on community sightings, retailer signals, and the stores inside your watch zone." action={<Link href="/report" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-extrabold text-primary-foreground" data-testid="link-submit-sighting"><Flag size={16} /> Submit a sighting</Link>} /><div className="mb-6 flex flex-wrap items-center gap-2"><div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2"><MapPin size={15} className="text-accent" /><span className="text-xs font-bold">{place.label}</span><button onClick={locate} className="ml-1 text-muted-foreground" data-testid="button-dashboard-location"><LocateFixed size={14} /></button></div><label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold"><SlidersHorizontal size={14} className="text-muted-foreground" /> Radius <select value={radius} onChange={(event) => setRadius(Number(event.target.value))} className="bg-transparent font-mono outline-none" data-testid="select-dashboard-radius"><option value={10}>10 mi</option><option value={25}>25 mi</option><option value={50}>50 mi</option><option value={75}>75 mi</option></select></label><span className="ml-auto font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">{radar.data ? `Updated ${ago(radar.data.updatedAt)}` : 'Connecting to radar'}</span></div>{setsQuery.isError ? <Empty title="Set catalog missed the signal" description="Radar needs the official set feed before it can scan." action={<button onClick={() => setsQuery.refetch()} className="rounded-xl bg-primary px-4 py-2 text-sm font-bold" data-testid="button-retry-dashboard">Retry feed</button>} /> : !active ? <div className="space-y-6"><div className="h-[310px] animate-pulse rounded-[24px] bg-muted" /><div className="h-48 animate-pulse rounded-[24px] bg-muted" /></div> : <div className="space-y-6"><section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]"><div className="relative min-h-[310px] overflow-hidden rounded-[24px] bg-sidebar p-6 text-sidebar-foreground shadow-lg sm:p-8"><div className="absolute inset-0 radar-grid opacity-30" /><div className="absolute -right-12 -top-20 h-64 w-64 rounded-full border border-sidebar-primary/25" /><div className="relative z-10 flex h-full flex-col justify-between"><div className="flex justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.22em] text-sidebar-primary">Selected set</p><h2 className="mt-3 text-3xl font-extrabold tracking-[-.05em] sm:text-5xl">{active.name}</h2><p className="mt-2 text-sm text-sidebar-foreground/60">{active.series} <span className="mx-2">•</span> {active.status === 'upcoming' ? 'Releases' : 'Released'} {active.releaseDate}</p>{active.status === 'upcoming' && <p className="mt-3 inline-flex items-center gap-2 rounded-lg bg-sidebar-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-primary"><Clock size={12} /> Not on shelves yet</p>}</div><div className="hidden h-14 w-14 place-items-center rounded-2xl border border-sidebar-primary/30 bg-sidebar-primary/10 sm:grid"><Target size={24} className="text-sidebar-primary" /></div></div><div className="mt-12 flex items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-sidebar-primary"><span className="h-2 w-2 rounded-full bg-sidebar-primary signal-pulse" /><span className="font-mono text-[11px] uppercase tracking-[.18em]">{radar.data?.inStockCount ? 'Signal found' : 'Quiet zone'}</span></div><p className="mt-2 max-w-sm text-sm leading-6 text-sidebar-foreground/58">{radar.data?.topSignal || 'No fresh signal has crossed your watch zone yet.'}</p></div><div className="text-right"><p className="font-mono text-4xl text-sidebar-primary">{radar.data?.activeReports ?? '—'}</p><p className="font-mono text-[9px] uppercase tracking-[.17em] text-sidebar-foreground/45">active reports</p></div></div></div></div><Signal radar={radar.data} loading={radar.isLoading} error={radar.isError} retry={() => radar.refetch()} /></section><section className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><Reports reports={reports.data || []} stores={stores.data || []} sets={sets} loading={reports.isLoading} /><Nearby stores={stores.data || []} loading={stores.isLoading} /></section></div>}</>;
+  return <><Intro eyebrow="Signal dashboard" title="Where should you look next?" description="A live read on community sightings, retailer signals, and the stores inside your watch zone." action={<Link href="/report" className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-extrabold text-primary-foreground" data-testid="link-submit-sighting"><Flag size={16} /> Submit a sighting</Link>} /><div className="mb-6 flex flex-wrap items-center gap-2"><div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2"><MapPin size={15} className="text-accent" /><span className="text-xs font-bold">{place.label}</span><button onClick={locate} className="ml-1 text-muted-foreground" data-testid="button-dashboard-location"><LocateFixed size={14} /></button></div><label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold"><SlidersHorizontal size={14} className="text-muted-foreground" /> Radius <select value={radius} onChange={(event) => setRadius(Number(event.target.value))} className="bg-transparent font-mono outline-none" data-testid="select-dashboard-radius"><option value={10}>10 mi</option><option value={25}>25 mi</option><option value={50}>50 mi</option><option value={75}>75 mi</option></select></label><span className="ml-auto font-mono text-[10px] uppercase tracking-[.16em] text-muted-foreground">{radar.data ? `Updated ${ago(radar.data.updatedAt)}` : 'Connecting to radar'}</span></div>{setsQuery.isError ? <Empty title="Set catalog missed the signal" description="Radar needs the official set feed before it can scan." action={<button onClick={() => setsQuery.refetch()} className="rounded-xl bg-primary px-4 py-2 text-sm font-bold" data-testid="button-retry-dashboard">Retry feed</button>} /> : !active ? <div className="space-y-6"><div className="h-[310px] animate-pulse rounded-[24px] bg-muted" /><div className="h-48 animate-pulse rounded-[24px] bg-muted" /></div> : <div className="space-y-6"><section className="grid gap-5 xl:grid-cols-[1.35fr_.65fr]"><div className="relative min-h-[310px] overflow-hidden rounded-[24px] bg-sidebar p-6 text-sidebar-foreground shadow-lg sm:p-8"><div className="absolute inset-0 radar-grid opacity-30" /><div className="absolute -right-12 -top-20 h-64 w-64 rounded-full border border-sidebar-primary/25" /><div className="relative z-10 flex h-full flex-col justify-between"><div className="flex justify-between gap-4"><div><p className="font-mono text-[10px] uppercase tracking-[.22em] text-sidebar-primary">Selected set</p><h2 className="mt-3 text-3xl font-extrabold tracking-[-.05em] sm:text-5xl">{active.name}</h2><p className="mt-2 text-sm text-sidebar-foreground/60">{active.series} <span className="mx-2">•</span> {active.status === 'upcoming' ? 'Releases' : 'Released'} {active.releaseDate}</p>{active.status === 'upcoming' && <p className="mt-3 inline-flex items-center gap-2 rounded-lg bg-sidebar-primary/10 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[.16em] text-sidebar-primary"><Clock size={12} /> Not on shelves yet</p>}</div><div className="hidden h-14 w-14 place-items-center rounded-2xl border border-sidebar-primary/30 bg-sidebar-primary/10 sm:grid"><Target size={24} className="text-sidebar-primary" /></div></div><div className="mt-12 flex items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-sidebar-primary"><span className="h-2 w-2 rounded-full bg-sidebar-primary signal-pulse" /><span className="font-mono text-[11px] uppercase tracking-[.18em]">{radar.data?.inStockCount ? 'Signal found' : 'Quiet zone'}</span></div><p className="mt-2 max-w-sm text-sm leading-6 text-sidebar-foreground/58">{radar.data?.topSignal || 'No fresh signal has crossed your watch zone yet.'}</p></div><div className="text-right"><p className="font-mono text-4xl text-sidebar-primary">{radar.data?.activeReports ?? '—'}</p><p className="font-mono text-[9px] uppercase tracking-[.17em] text-sidebar-foreground/45">active reports</p></div></div></div></div><Signal radar={radar.data} loading={radar.isLoading} error={radar.isError} retry={() => radar.refetch()} /></section><section className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><Reports reports={reports.data || []} stores={stores.data || []} sets={sets} loading={reports.isLoading} /><Nearby stores={stores.data || []} loading={stores.isLoading} /></section><section className="grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><RetailSignals setId={active.id} /><div className="hidden lg:block" /></section></div>}</>;
 }
 function Signal({ radar, loading, error, retry }: { radar?: { inStockCount: number; limitedCount: number; soldOutCount: number; lastConfirmedAt: string | null }; loading: boolean; error: boolean; retry: () => void }) {
   return <div className="rounded-[24px] border border-border bg-card p-6 shadow-sm"><div className="flex justify-between"><div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Radar readout</p><h3 className="mt-1 text-lg font-extrabold">Signal strength</h3></div><div className="grid h-10 w-10 place-items-center rounded-xl bg-secondary text-secondary-foreground"><Radio size={18} /></div></div>{loading ? <div className="mt-8 space-y-4"><div className="h-10 w-28 animate-pulse rounded bg-muted" /><div className="h-2 animate-pulse rounded bg-muted" /><div className="h-2 w-3/4 animate-pulse rounded bg-muted" /></div> : error ? <div className="mt-8 rounded-xl border border-accent/30 bg-accent/10 p-4 text-sm font-bold"><CircleAlert size={16} className="mr-2 inline text-accent" />Radar unavailable<button onClick={retry} className="ml-3 text-xs text-accent underline" data-testid="button-retry-radar">Retry</button></div> : <><div className="mt-7 flex items-end gap-2"><span className="font-mono text-5xl tracking-[-.08em]">{radar?.inStockCount ?? 0}</span><span className="pb-1 text-sm font-semibold text-muted-foreground">in stock reports</span></div><div className="mt-5 flex h-2 overflow-hidden rounded-full bg-muted"><span className="bg-[#3f9e68]" style={{ width: `${Math.min(100, (radar?.inStockCount || 0) * 18)}%` }} /><span className="bg-primary" style={{ width: `${Math.min(100, (radar?.limitedCount || 0) * 14)}%` }} /><span className="bg-accent" style={{ width: `${Math.min(100, (radar?.soldOutCount || 0) * 10)}%` }} /></div><div className="mt-4 grid grid-cols-3 gap-2"><Metric label="Limited" value={radar?.limitedCount ?? 0} color="text-primary" /><Metric label="Sold out" value={radar?.soldOutCount ?? 0} color="text-accent" /><Metric label="Confirmed" value={ago(radar?.lastConfirmedAt)} /></div></>}</div>;
 }
+const SIGNAL_LABEL: Record<RetailSignal['kind'], string> = {
+  listing_appeared: 'Listing went up',
+  restock: 'Back in stock',
+  status_change: 'Availability changed',
+  pickup_change: 'Store pickup changed',
+  quantity_change: 'Online quantity moved',
+};
+const SIGNAL_STYLE: Record<RetailSignal['kind'], string> = {
+  listing_appeared: 'bg-primary/20 text-[#896615]',
+  restock: 'bg-[#dff1e5] text-[#287748]',
+  status_change: 'bg-secondary text-secondary-foreground',
+  pickup_change: 'bg-secondary text-secondary-foreground',
+  quantity_change: 'bg-muted text-muted-foreground',
+};
+
+// The retailer-watch panel. It deliberately names which retailers are
+// actually covered: Target answers this server, Walmart blocks it outright,
+// and a panel that just said "retailer signals" would read as though both
+// were being watched.
+function RetailSignals({ setId }: { setId: string }) {
+  const signals = useQuery({ queryKey: ['signals', setId], queryFn: () => fetchSignals({ setId, limit: 8 }), enabled: Boolean(setId), refetchInterval: 60_000, refetchIntervalInBackground: true });
+  const status = useQuery({ queryKey: ['retail-status'], queryFn: fetchRetailStatus, staleTime: 5 * 60_000 });
+  const rows = signals.data || [];
+  const cooling = status.data?.cooldownUntil ? new Date(status.data.cooldownUntil).getTime() > Date.now() : false;
+  return <div className="min-w-0 rounded-[24px] border border-border bg-card shadow-sm">
+    <div className="flex justify-between border-b border-border px-6 py-5">
+      <div><p className="font-mono text-[10px] uppercase tracking-[.2em] text-muted-foreground">Retailer watch</p><h3 className="mt-1 text-lg font-extrabold">Before it hits the shelf</h3></div>
+      <div className="grid h-10 w-10 place-items-center rounded-xl bg-secondary text-secondary-foreground"><Zap size={18} /></div>
+    </div>
+    {signals.isLoading ? <div className="space-y-4 p-6">{[1, 2, 3].map((n) => <div key={n} className="h-12 animate-pulse rounded bg-muted" />)}</div>
+      : rows.length === 0 ? <Empty compact title="No retailer movement yet" description="Target.com listings for this set are being checked on a schedule. A new listing or an availability flip shows up here first." />
+      : <div className="divide-y divide-border">{rows.map((signal) => <div className="flex gap-3 px-6 py-4" key={signal.id} data-testid={`row-signal-${signal.id}`}>
+          <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-secondary text-secondary-foreground"><Zap size={15} /></div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2"><span className={`rounded-md px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide ${SIGNAL_STYLE[signal.kind]}`}>{SIGNAL_LABEL[signal.kind]}</span><span className="font-mono text-[10px] uppercase tracking-[.12em] text-muted-foreground">{signal.retailer}</span></div>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{signal.title}</p>
+            {signal.from && signal.to && <p className="mt-1 font-mono text-[10px] text-muted-foreground">{signal.from} &rarr; {signal.to}</p>}
+            <small className="mt-2 block font-mono text-[9px] uppercase tracking-[.12em] text-muted-foreground">{ago(signal.detectedAt)}</small>
+          </div>
+          {signal.url && <a href={signal.url} target="_blank" rel="noopener noreferrer" className="shrink-0 self-start text-muted-foreground hover:text-accent" data-testid={`link-signal-${signal.id}`}><ExternalLink size={14} /></a>}
+        </div>)}</div>}
+    {status.data && <p className="border-t border-border px-6 py-3 font-mono text-[9px] uppercase leading-4 tracking-[.14em] text-muted-foreground">
+      Target.com only &middot; every {status.data.intervalMinutes}m &middot; {cooling ? 'backing off after a rate limit' : `checked ${ago(status.data.lastSuccessAt)}`}<br />Walmart and Best Buy block automated checks
+    </p>}
+  </div>;
+}
+
 function Reports({ reports, stores, sets, loading }: { reports: StockReport[]; stores: Store[]; sets: PokemonSet[]; loading: boolean }) {
   // min-w-0: as a grid item this defaults to min-width:auto, so the truncated
   // (white-space:nowrap) store names and notes below set a min-content floor
@@ -279,7 +342,7 @@ function Nearby({ stores, loading }: { stores: Store[]; loading: boolean }) {
 }
 
 function SetsPage() {
-  const query = useQuery({ queryKey: ['sets'], queryFn: fetchSets });
+  const query = useQuery(SETS_QUERY);
   const sets = query.data || [];
   const { selectedSetId, selectSet } = useContext(SetContext);
   const active = pickActiveSet(sets, selectedSetId);

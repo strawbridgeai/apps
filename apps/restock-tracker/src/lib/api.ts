@@ -97,6 +97,46 @@ export const fetchSyncStatus = (): Promise<SetSyncStatus> =>
     return r.json();
   });
 
+// Machine-observed retailer state. Separate from StockReport on purpose:
+// a community sighting and a scraped availability flip are different kinds
+// of claim, and conflating them would hide which is which.
+export type RetailSignalKind = 'listing_appeared' | 'status_change' | 'restock' | 'pickup_change' | 'quantity_change';
+
+export interface RetailSignal {
+  id: string;
+  retailer: string;
+  productId: string;
+  setId: string | null;
+  title: string;
+  url: string | null;
+  kind: RetailSignalKind;
+  from: string | null;
+  to: string | null;
+  detectedAt: string;
+}
+
+export interface RetailStatus {
+  enabled: boolean;
+  retailers: Record<string, string>;
+  intervalMinutes: number;
+  lastRunAt: string | null;
+  lastSuccessAt: string | null;
+  lastStatus: string | null;
+  lastBlock: string | null;
+  cooldownUntil: string | null;
+  trackedListings: number;
+  events: number;
+}
+
+export const fetchSignals = (params: { setId?: string; limit?: number }): Promise<RetailSignal[]> =>
+  getJson('signals', { setId: params.setId ?? '', limit: params.limit ?? 8 });
+
+export const fetchRetailStatus = (): Promise<RetailStatus> =>
+  fetch('api/retail-status').then((r) => {
+    if (!r.ok) throw new Error('Failed to load retailer watch status');
+    return r.json();
+  });
+
 export const fetchStores = (params: { lat: number; lng: number; radius: number }): Promise<Store[]> =>
   getJson('stores', params);
 

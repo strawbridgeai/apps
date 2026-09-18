@@ -13,6 +13,7 @@ const rateLimit = require('express-rate-limit');
 const { db } = require('./db.js');
 const { seedIfEmpty } = require('./seed.js');
 const { syncStatus, startSetSync } = require('./set-sync.js');
+const { watchStatus, recentSignals, startRetailWatch } = require('./retail-watch.js');
 
 const PORT = 2013;
 
@@ -161,6 +162,24 @@ app.get('/api/sets/sync-status', readLimiter, (req, res) => {
   res.json(syncStatus());
 });
 
+// ---------- retailer signals ----------
+// Machine-observed retailer state, kept deliberately separate from
+// /api/reports. A community sighting and a scraped availability flip are
+// different kinds of claim with different failure modes, and stock_reports
+// also requires a store_id foreign key - online availability belongs to no
+// physical store, so folding these in would have meant inventing a fake one.
+app.get('/api/signals', readLimiter, (req, res) => {
+  const setId = String(req.query.setId || '');
+  const limit = Math.min(Number(req.query.limit) || 10, 50);
+  res.json(recentSignals(setId || null, limit));
+});
+
+// Says which retailers are actually being watched and which are not, so the
+// UI can state the real coverage instead of implying Walmart works.
+app.get('/api/retail-status', readLimiter, (req, res) => {
+  res.json(watchStatus());
+});
+
 // ---------- store directory ----------
 app.get('/api/stores', readLimiter, (req, res) => {
   const loc = parseLocationQuery(req.query);
@@ -268,6 +287,7 @@ const options = {
 
 seedIfEmpty();
 startSetSync();
+startRetailWatch();
 
 https.createServer(options, app).listen(PORT, '127.0.0.1', () => {
   console.log(`restock-tracker-api listening on https://127.0.0.1:${PORT}`);
