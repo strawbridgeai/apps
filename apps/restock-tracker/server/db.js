@@ -92,6 +92,35 @@ addSetColumn('source', "TEXT NOT NULL DEFAULT 'seed'");   // 'seed' | 'tcgdex' |
 addSetColumn('added_at', 'INTEGER');                      // ms epoch; drives the "New" badge
 addSetColumn('card_count', 'INTEGER');
 
+// The stores table was six hardcoded demo rows - one Target, one Best Buy,
+// one Walmart, one Dollar General and two invented hobby shops, all in
+// Manhattan. store-lookup.js fills it from OpenStreetMap now, so these
+// columns record where a row came from and let a real store be told apart
+// from (and deduped against) the original demo data.
+const storeColumns = new Set(db.prepare('PRAGMA table_info(stores)').all().map((c) => c.name));
+const addStoreColumn = (name, decl) => {
+  if (!storeColumns.has(name)) db.exec(`ALTER TABLE stores ADD COLUMN ${name} ${decl}`);
+};
+addStoreColumn('source', "TEXT NOT NULL DEFAULT 'seed'");   // 'seed' | 'osm'
+addStoreColumn('osm_id', 'TEXT');
+addStoreColumn('website', 'TEXT');
+addStoreColumn('fetched_at', 'INTEGER');
+
+db.exec(`
+  -- Which geographic circles have already been pulled from Overpass. A
+  -- request is only allowed to hit the network when its whole search circle
+  -- falls outside every circle already fetched, which keeps a free community
+  -- API from being queried on every page load.
+  CREATE TABLE IF NOT EXISTS store_areas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lat REAL NOT NULL,
+    lng REAL NOT NULL,
+    radius_mi REAL NOT NULL,
+    fetched_at INTEGER NOT NULL,
+    store_count INTEGER NOT NULL
+  );
+`);
+
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 // 'September 26, 2025' -> '2025-09-26'. Deliberately not Date.parse: that

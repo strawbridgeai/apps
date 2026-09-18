@@ -14,6 +14,7 @@ const { db } = require('./db.js');
 const { seedIfEmpty } = require('./seed.js');
 const { syncStatus, startSetSync } = require('./set-sync.js');
 const { watchStatus, recentSignals, startRetailWatch } = require('./retail-watch.js');
+const { ensureStoresNear, lookupStatus } = require('./store-lookup.js');
 
 const PORT = 2013;
 
@@ -181,15 +182,38 @@ app.get('/api/retail-status', readLimiter, (req, res) => {
 });
 
 // ---------- store directory ----------
-app.get('/api/stores', readLimiter, (req, res) => {
+// The directory used to be six hardcoded demo rows around Union Square, so
+// this route could never return more than six stores and returned none at
+// all outside New York. It now pulls real stores near whatever location was
+// asked about, the first time that area is seen, and serves from the local
+// table forever after.
+app.get('/api/stores', readLimiter, async (req, res) => {
   const loc = parseLocationQuery(req.query);
   if (!loc) return res.status(400).json({ error: 'Invalid location or radius.' });
-  const stores = db.prepare('SELECT * FROM stores').all();
-  const result = stores
-    .map((s) => storeResponse(s, distanceMiles(loc.lat, loc.lng, s.lat, s.lng)))
-    .filter((s) => s.distanceMiles <= loc.radius)
-    .sort((a, b) => a.distanceMiles - b.distanceMiles);
-  res.json(result);
+  // Deliberately awaited rather than fired off in the background: on a first
+  // visit to a new area there is nothing useful to return without it, and
+  // answering instantly with an empty list is exactly the bug being fixed.
+  // It never throws - a failed lookup just means the area is not filled in
+  // yet - so a slow map service degrades to a short directory, not a 500.
+  // Express 4 does not catch a rejected async handler, so anything thrown
+  // past this point would surface as an unhandled rejection and a hung
+  // request rather than a response.
+  try {
+    await ensureStoresNear(loc.lat, loc.lng, loc.radius);
+    const stores = db.prepare('SELECT * FROM stores').all();
+    const result = stores
+      .map((s) => storeResponse(s, distanceMiles(loc.lat, loc.lng, s.lat, s.lng)))
+      .filter((s) => s.distanceMiles <= loc.radius)
+      .sort((a, b) => a.distanceMiles - b.distanceMiles);
+    res.json(result);
+  } catch (err) {
+    console.error(`[api/stores] ${err.message}`);
+    res.status(500).json({ error: 'Could not load nearby stores.' });
+  }
+});
+
+app.get('/api/store-status', readLimiter, (req, res) => {
+  res.json(lookupStatus());
 });
 
 // ---------- stock reports ----------
