@@ -137,6 +137,8 @@ export function detailHtml(layerKey, item) {
 // clear and repopulate every other layer.
 const PLOT_COLOR = '#b5653f';
 const MEETING_COLOR = '#3f6b45';
+const RADIUS_COLOR = '#2f6f36';
+const MILE_IN_METRES = 1609.34;
 
 function plotIcon(index) {
   return L.divIcon({
@@ -253,6 +255,11 @@ export function createMapController(container, { onMarkerSelect } = {}) {
   // "2" bubble would hide exactly the thing the user is trying to position.
   const plotLayer = L.layerGroup().addTo(map);
   const meetingLayer = L.layerGroup().addTo(map);
+  // Below the pins: the ring is context, and a fill drawn over the markers
+  // would wash out the very things it is meant to frame.
+  const radiusLayer = L.layerGroup().addTo(map);
+  const routeLayer = L.layerGroup().addTo(map);
+  const flashLayer = L.layerGroup().addTo(map);
 
   function renderPlots(plots, { onPlotClick } = {}) {
     plotLayer.clearLayers();
@@ -300,6 +307,95 @@ export function createMapController(container, { onMarkerSelect } = {}) {
       .addTo(meetingLayer);
   }
 
+  // The ring showing how far out "the area" reaches from whatever is
+  // currently in focus - the meeting point the homes converge on, or a pin
+  // that was clicked. Drawn with a true metric radius (L.circle, not
+  // L.circleMarker) so it stays geographically honest at every zoom instead
+  // of being a fixed number of screen pixels.
+  function renderRadius(center, radiusMiles) {
+    radiusLayer.clearLayers();
+    if (!center || !radiusMiles) return;
+    L.circle(center, {
+      radius: radiusMiles * MILE_IN_METRES,
+      color: RADIUS_COLOR,
+      weight: 1.5,
+      opacity: 0.65,
+      fillColor: RADIUS_COLOR,
+      fillOpacity: 0.07,
+      dashArray: '5 7',
+      interactive: false,
+    }).addTo(radiusLayer);
+  }
+
+  function fitRadius(center, radiusMiles) {
+    if (!center || !radiusMiles) return;
+    const circle = L.circle(center, { radius: radiusMiles * MILE_IN_METRES });
+    map.fitBounds(circle.getBounds().pad(0.1));
+  }
+
+  // One polyline per person, each in that person's colour, drawn under a
+  // thin white casing so a route stays legible crossing forest-green terrain
+  // and other routes.
+  function renderRoutes(plots, destination, results, colorFor) {
+    routeLayer.clearLayers();
+    if (!results?.length) return;
+    results.forEach((result, i) => {
+      if (!result?.ok || !result.line?.length) return;
+      const color = colorFor(i);
+      L.polyline(result.line, { color: '#ffffff', weight: 7, opacity: 0.75, interactive: false }).addTo(routeLayer);
+      L.polyline(result.line, { color, weight: 4, opacity: 0.95 })
+        .bindTooltip(
+          `<div class="camp-tooltip"><strong>${escapeHtml(plots[i]?.label || `Home ${i + 1}`)}</strong><br>${result.miles.toFixed(0)} mi driving</div>`,
+          { sticky: true, className: 'camp-tooltip-wrap' }
+        )
+        .addTo(routeLayer);
+    });
+  }
+
+  function fitRoutes(results, destination) {
+    const points = results.filter((r) => r?.ok).flatMap((r) => r.line);
+    if (!points.length) return;
+    map.fitBounds(L.latLngBounds([...points, destination]).pad(0.12));
+  }
+
+  function clearRoutes() {
+    routeLayer.clearLayers();
+  }
+
+  // Search results can sit under a cluster bubble, so a plain setView would
+  // leave the user staring at a cluster count instead of the thing they
+  // picked. Zoom past the cluster threshold and pulse the spot so the eye
+  // lands on it.
+  // The pulse timer has to be tracked across calls. Picking a second search
+  // result while the first pulse was still running cleared the old ring out
+  // from under its own interval, which then kept calling setStyle on a layer
+  // with no map attached - Leaflet dereferences _map to redraw and threw
+  // "Cannot read properties of undefined (reading 'layerPointToLatLng')".
+  let flashTimer = null;
+
+  function focusPoint(point, { zoom = 15 } = {}) {
+    map.setView(point, Math.max(map.getZoom(), zoom), { animate: true });
+    clearInterval(flashTimer);
+    flashLayer.clearLayers();
+    const ring = L.circleMarker(point, {
+      radius: 26, color: '#b3ad1f', weight: 3, opacity: 0.9, fill: false, interactive: false,
+    }).addTo(flashLayer);
+    let step = 0;
+    flashTimer = setInterval(() => {
+      step += 1;
+      // Belt and braces: if anything else detached the ring, stop touching it.
+      if (!map.hasLayer(flashLayer) || !ring._map) {
+        clearInterval(flashTimer);
+        return;
+      }
+      ring.setStyle({ opacity: step % 2 ? 0.25 : 0.9 });
+      if (step >= 6) {
+        clearInterval(flashTimer);
+        flashLayer.clearLayers();
+      }
+    }, 280);
+  }
+
   function fitPlots(plots) {
     if (plots.length < 2) return;
     map.fitBounds(L.latLngBounds(plots.map((p) => p.point)).pad(0.25));
@@ -315,5 +411,11 @@ export function createMapController(container, { onMarkerSelect } = {}) {
     renderPlots,
     renderMeeting,
     fitPlots,
+    renderRadius,
+    fitRadius,
+    renderRoutes,
+    fitRoutes,
+    clearRoutes,
+    focusPoint,
   };
 }

@@ -1,13 +1,14 @@
 // Finding a fair place for a group to meet, given where each person lives.
 //
-// Two people have one obvious answer, so that case is solved exactly: the
-// great-circle midpoint. Three or more has no single "correct" answer, and
-// the intuitive one — a point exactly equidistant from everybody — is a trap.
-// Three nearly-collinear homes are all equidistant from a circumcenter that
-// can sit hundreds of miles away, which is technically perfect and useless in
-// practice. So the search below minimises how *unequal* the distances are
-// while staying inside the box the homes span, which keeps the answer both
-// even-handed and somewhere the group would actually drive to.
+// Two people have one obvious answer, solved exactly: the great-circle
+// midpoint. For three or more, the answer is the true geographic middle of
+// the homes — the average of their positions on the globe (spherical
+// centroid). An earlier version instead minimised how *unequal* everyone's
+// distances were, which sounds fair but misbehaves with a lopsided group:
+// three East Coast homes plus one in Montana got pushed to the northern edge
+// of the bounding box (Lake Superior), because from far enough away the three
+// eastern homes all look about equally distant. The centroid is predictable
+// and lands where people expect "the middle" to be.
 
 const EARTH_RADIUS_MI = 3958.8;
 const toRad = (deg) => (deg * Math.PI) / 180;
@@ -44,72 +45,27 @@ export function distancesFrom(point, plots) {
   return plots.map((p) => haversineMiles(point, p));
 }
 
-// How uneven a candidate is (the number being minimised), plus the mean used
-// only to break ties between candidates that are equally even.
-function evaluate(point, plots) {
-  const d = distancesFrom(point, plots);
-  let min = Infinity;
-  let max = -Infinity;
-  let sum = 0;
-  for (const v of d) {
-    if (v < min) min = v;
-    if (v > max) max = v;
-    sum += v;
+// Average the homes as unit vectors on the sphere and project back to the
+// surface. Unlike averaging raw lat/lng this stays correct across the
+// antimeridian and doesn't drift as longitude separation grows.
+export function sphericalCentroid(plots) {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const [lat, lng] of plots) {
+    const la = toRad(lat);
+    const lo = toRad(lng);
+    x += Math.cos(la) * Math.cos(lo);
+    y += Math.cos(la) * Math.sin(lo);
+    z += Math.sin(la);
   }
-  return { spread: max - min, mean: sum / d.length };
+  return [toDeg(Math.atan2(z, Math.hypot(x, y))), toDeg(Math.atan2(y, x))];
 }
 
-function isBetter(a, b) {
-  if (Math.abs(a.spread - b.spread) > 1e-9) return a.spread < b.spread;
-  return a.mean < b.mean;
-}
-
-const STEP_DIRECTIONS = [
-  [1, 0], [-1, 0], [0, 1], [0, -1],
-  [1, 1], [1, -1], [-1, 1], [-1, -1],
-];
-
-// Hill-climb with a shrinking step. The objective has no closed form once the
-// answer is constrained to the bounding box, and with a handful of homes this
-// converges in well under a millisecond — no solver dependency needed.
 export function fairMeetingPoint(plots) {
   if (plots.length < 2) return null;
   if (plots.length === 2) return greatCircleMidpoint(plots[0], plots[1]);
-
-  const lats = plots.map((p) => p[0]);
-  const lngs = plots.map((p) => p[1]);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLng = Math.min(...lngs);
-  const maxLng = Math.max(...lngs);
-
-  const clamp = (point) => [
-    Math.min(maxLat, Math.max(minLat, point[0])),
-    Math.min(maxLng, Math.max(minLng, point[1])),
-  ];
-
-  let best = clamp([
-    lats.reduce((s, v) => s + v, 0) / lats.length,
-    lngs.reduce((s, v) => s + v, 0) / lngs.length,
-  ]);
-  let bestScore = evaluate(best, plots);
-
-  let step = Math.max(maxLat - minLat, maxLng - minLng) / 4 || 0.01;
-  for (let i = 0; i < 200 && step > 1e-7; i++) {
-    let moved = false;
-    for (const [dLat, dLng] of STEP_DIRECTIONS) {
-      const candidate = clamp([best[0] + dLat * step, best[1] + dLng * step]);
-      const score = evaluate(candidate, plots);
-      if (isBetter(score, bestScore)) {
-        best = candidate;
-        bestScore = score;
-        moved = true;
-      }
-    }
-    if (!moved) step /= 2;
-  }
-
-  return best;
+  return sphericalCentroid(plots);
 }
 
 // Summary the UI shows so the result is inspectable rather than a mystery pin:

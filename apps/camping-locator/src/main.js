@@ -6,7 +6,8 @@ import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
 import { queryCampgrounds } from './ridb.js';
-import { meetingSummary } from './meetingPoint.js';
+import { meetingSummary, haversineMiles } from './meetingPoint.js';
+import { routeEveryoneTo, routeColor, formatDuration, routeSpread } from './routing.js';
 
 // Guard against enormous/expensive queries against a shared free API — past
 // this, tiling (see overpass.js) stops being enough and we ask the user to
@@ -107,6 +108,12 @@ app.innerHTML = `
           </svg>
         </a>
         <div id="title-mount"></div>
+        <div class="site-search">
+          <input id="site-search-input" type="search" class="site-search-input" autocomplete="off"
+                 placeholder="Search campgrounds on the map…" aria-label="Search places on the map"
+                 role="combobox" aria-expanded="false" aria-controls="site-search-results">
+          <ul id="site-search-results" class="site-search-results" role="listbox" hidden></ul>
+        </div>
         <button id="locate-btn" class="ghost-btn" type="button" title="Center on my location">📍 My location</button>
       </div>
     </header>
@@ -115,6 +122,16 @@ app.innerHTML = `
       <div class="layer-toggles" id="layer-toggles"></div>
       <button id="search-btn" class="btn-primary shrink-0" type="button">Search this area</button>
       <button id="plot-mode-btn" class="ghost-btn shrink-0" type="button" aria-pressed="false">🏠 Add homes</button>
+      <label class="radius-control shrink-0">
+        <span class="radius-label">Radius</span>
+        <select id="radius-select" aria-label="Show a radius around the focused location">
+          <option value="0">Off</option>
+          <option value="10">10 mi</option>
+          <option value="25" selected>25 mi</option>
+          <option value="50">50 mi</option>
+          <option value="100">100 mi</option>
+        </select>
+      </label>
       <span id="status" class="status" role="status"></span>
     </div>
 
@@ -127,6 +144,19 @@ app.innerHTML = `
         </div>
         <ol id="meeting-list" class="meeting-list"></ol>
         <p id="meeting-summary" class="meeting-summary"></p>
+        <div id="route-block" class="route-block" hidden>
+          <div class="route-head">
+            <strong id="route-dest">Everyone's drive</strong>
+            <button id="route-clear" class="meeting-clear" type="button">Clear routes</button>
+          </div>
+          <ol id="route-list" class="route-list"></ol>
+          <p id="route-summary" class="meeting-summary"></p>
+        </div>
+        <button id="route-meeting-btn" class="route-btn" type="button" hidden>🚗 Drive times to meeting point</button>
+      </aside>
+      <aside id="area-panel" class="area-panel" hidden>
+        <div class="area-head"><strong id="area-title">In this area</strong><span id="area-radius" class="area-radius"></span></div>
+        <ul id="area-list" class="area-list"></ul>
       </aside>
       <aside id="detail-panel" class="detail-panel">
         <button id="panel-close" class="panel-close" type="button" aria-label="Close">&times;</button>
@@ -158,15 +188,51 @@ for (const [key, meta] of Object.entries(LAYER_META)) {
 const detailPanel = document.querySelector('#detail-panel');
 const panelContent = document.querySelector('#panel-content');
 
+// Everything currently rendered on the map, keyed by layer. The search box
+// and the radius summary both have to answer questions about the pins the
+// user can actually see, and neither the map controller nor the search
+// routine kept the items around once they had been handed to Leaflet.
+const loadedResults = {};
+let selectedItem = null;
+// Which of the two possible anchors the radius ring should follow. Fixed
+// priority was wrong in both directions: with a pin always winning, adding
+// homes never moved the ring off a campground selected minutes earlier; with
+// the meeting point always winning, clicking a pin to ask "what's near this?"
+// did nothing. Whichever the user touched last is the one they mean.
+let focusSource = null; // 'pin' | 'meeting'
+
 function openPanel(layerKey, item) {
+  selectedItem = { layerKey, item };
+  focusSource = 'pin';
   panelContent.innerHTML = detailHtml(layerKey, item);
+  // Appended rather than baked into detailHtml: map.js builds that string
+  // with no knowledge of home plots, and this button only means anything
+  // once at least one home exists.
+  if (plots.length) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'route-btn';
+    btn.textContent = plots.length === 1 ? '🚗 Drive time from home' : `🚗 Drive times from all ${plots.length} homes`;
+    btn.addEventListener('click', () => runRoutes(item.point, itemLabel(layerKey, item)));
+    panelContent.appendChild(btn);
+  }
   detailPanel.classList.add('open');
+  document.querySelector('.map-area').classList.add('panel-open');
   saveSessionState({ panel: { layerKey, item } });
+  refreshFocus();
 }
 
 function closePanel() {
   detailPanel.classList.remove('open');
+  document.querySelector('.map-area').classList.remove('panel-open');
+  selectedItem = null;
+  if (focusSource === 'pin') focusSource = currentMeeting ? 'meeting' : null;
   saveSessionState({ panel: null });
+  refreshFocus();
+}
+
+function itemLabel(layerKey, item) {
+  return item.tags?.name || LAYER_META[layerKey].label.replace(/s$/, '');
 }
 
 document.querySelector('#panel-close').addEventListener('click', closePanel);
@@ -181,6 +247,7 @@ const meetingSummaryEl = document.querySelector('#meeting-summary');
 
 let plotMode = false;
 let plots = loadSessionState().plots || [];
+let currentMeeting = null;
 
 function setPlotMode(on) {
   plotMode = on;
@@ -200,7 +267,13 @@ function renderMeeting() {
   });
 
   const summary = plots.length >= 2 ? meetingSummary(plots.map((p) => p.point)) : null;
+  const meetingMoved = Boolean(summary) && (!currentMeeting || currentMeeting.point[0] !== summary.point[0] || currentMeeting.point[1] !== summary.point[1]);
+  currentMeeting = summary;
+  if (meetingMoved) focusSource = 'meeting';
+  else if (!summary && focusSource === 'meeting') focusSource = selectedItem ? 'pin' : null;
   controller.renderMeeting(summary, plots);
+  document.querySelector('#route-meeting-btn').hidden = !summary;
+  refreshFocus();
 
   meetingPanel.hidden = plots.length === 0;
   meetingList.innerHTML = plots
@@ -221,7 +294,7 @@ function renderMeeting() {
   }
   meetingSummaryEl.textContent = summary.exact
     ? `Exact halfway point — ${summary.max.toFixed(1)} mi each.`
-    : `Closest to even for ${plots.length} homes: ${summary.min.toFixed(1)}–${summary.max.toFixed(1)} mi (${summary.spread.toFixed(1)} mi apart).`;
+    : `Geographic middle of ${plots.length} homes: ${summary.min.toFixed(1)}–${summary.max.toFixed(1)} mi away.`;
 }
 
 function addPlot(point) {
@@ -254,6 +327,265 @@ controller.map.on('click', (e) => {
   closePanel();
 });
 
+// --- Radius ring + "what's in this area" -------------------------------
+//
+// The ring anchors to whatever the map is currently focused on: a pin if one
+// is selected, otherwise the meeting point the homes converge on. Anchoring
+// it to only one of those would be wrong half the time - picking a campsite
+// and asking "what else is near this?" is the same question as asking it
+// about the spot everyone is driving to.
+const radiusSelect = document.querySelector('#radius-select');
+const areaPanel = document.querySelector('#area-panel');
+const areaTitle = document.querySelector('#area-title');
+const areaRadiusEl = document.querySelector('#area-radius');
+const areaList = document.querySelector('#area-list');
+
+let radiusMiles = Number(loadSessionState().radiusMiles ?? 25);
+radiusSelect.value = String(radiusMiles);
+
+function visibleLayerKeys() {
+  return Object.keys(LAYER_META).filter(toggleChecked);
+}
+
+function focusAnchor() {
+  const pin = selectedItem
+    ? { point: selectedItem.item.point, label: itemLabel(selectedItem.layerKey, selectedItem.item) }
+    : null;
+  const meeting = currentMeeting ? { point: currentMeeting.point, label: 'Meeting point' } : null;
+  if (focusSource === 'pin' && pin) return pin;
+  if (focusSource === 'meeting' && meeting) return meeting;
+  return pin || meeting;
+}
+
+function refreshFocus() {
+  const anchor = focusAnchor();
+  if (!anchor || !radiusMiles) {
+    controller.renderRadius(null);
+    areaPanel.hidden = true;
+    return;
+  }
+  controller.renderRadius(anchor.point, radiusMiles);
+
+  // Counted from the pins actually loaded and visible, not from a fresh
+  // query - the ring describes what the user is looking at. That also means
+  // it says "of the loaded pins", which is why the panel spells that out
+  // rather than implying it is an exhaustive census of the area.
+  const rows = [];
+  for (const key of visibleLayerKeys()) {
+    const items = loadedResults[key] || [];
+    const inside = items.filter((it) => haversineMiles(anchor.point, it.point) <= radiusMiles);
+    if (inside.length) rows.push({ key, count: inside.length });
+  }
+  areaTitle.textContent = anchor.label;
+  areaRadiusEl.textContent = `within ${radiusMiles} mi`;
+  areaList.innerHTML = rows.length
+    ? rows
+        .map(
+          (r) => `<li><span class="dot" style="background:${LAYER_META[r.key].color}"></span>
+            <span class="area-name">${LAYER_META[r.key].label}</span>
+            <span class="area-count">${r.count}</span></li>`
+        )
+        .join('')
+    : '<li class="area-empty">No loaded pins inside this radius.</li>';
+  areaPanel.hidden = false;
+}
+
+radiusSelect.addEventListener('change', () => {
+  radiusMiles = Number(radiusSelect.value);
+  saveSessionState({ radiusMiles });
+  refreshFocus();
+  const anchor = focusAnchor();
+  if (anchor && radiusMiles) controller.fitRadius(anchor.point, radiusMiles);
+});
+
+// --- Search over the pins on the map -----------------------------------
+//
+// Deliberately searches only what is already loaded, because that is what
+// the request was: match the names of what pops up on the map. A geocoder
+// would happily return a campground three states away that has no pin,
+// which is a different and more confusing feature.
+const searchInput = document.querySelector('#site-search-input');
+const searchResults = document.querySelector('#site-search-results');
+const MAX_SEARCH_RESULTS = 12;
+
+let searchMatches = [];
+let searchActiveIndex = -1;
+
+function currentMatches(query) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const center = controller.map.getCenter();
+  const from = [center.lat, center.lng];
+  const out = [];
+  for (const key of visibleLayerKeys()) {
+    for (const item of loadedResults[key] || []) {
+      const name = item.tags?.name;
+      if (!name || !name.toLowerCase().includes(q)) continue;
+      out.push({ key, item, name, distance: haversineMiles(from, item.point) });
+    }
+  }
+  // Nearest first: with a common name like "Lakeview Campground" the one in
+  // view is almost always the one meant.
+  out.sort((a, b) => a.distance - b.distance);
+  return out.slice(0, MAX_SEARCH_RESULTS);
+}
+
+function renderSearchResults() {
+  if (!searchMatches.length) {
+    searchResults.hidden = true;
+    searchResults.innerHTML = '';
+    searchInput.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  searchResults.innerHTML = searchMatches
+    .map(
+      (m, i) => `<li role="option" data-index="${i}" class="${i === searchActiveIndex ? 'is-active' : ''}" aria-selected="${i === searchActiveIndex}">
+        <span class="dot" style="background:${LAYER_META[m.key].color}"></span>
+        <span class="search-name">${escapeForAttr(m.name)}</span>
+        <span class="search-dist">${m.distance.toFixed(0)} mi</span>
+      </li>`
+    )
+    .join('');
+  searchResults.hidden = false;
+  searchInput.setAttribute('aria-expanded', 'true');
+}
+
+function escapeForAttr(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function refreshSearch() {
+  if (!searchInput.value.trim()) return;
+  searchMatches = currentMatches(searchInput.value);
+  searchActiveIndex = searchMatches.length ? 0 : -1;
+  renderSearchResults();
+}
+
+function chooseMatch(index) {
+  const match = searchMatches[index];
+  if (!match) return;
+  controller.focusPoint(match.item.point);
+  openPanel(match.key, match.item);
+  searchResults.hidden = true;
+  searchInput.setAttribute('aria-expanded', 'false');
+  searchInput.blur();
+}
+
+searchInput.addEventListener('input', () => {
+  searchMatches = currentMatches(searchInput.value);
+  searchActiveIndex = searchMatches.length ? 0 : -1;
+  renderSearchResults();
+  if (searchInput.value.trim().length >= 2 && !searchMatches.length) {
+    searchResults.innerHTML = '<li class="search-empty">No loaded pin matches that name. Try searching this area first.</li>';
+    searchResults.hidden = false;
+  }
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (searchResults.hidden) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    searchActiveIndex = (searchActiveIndex + delta + searchMatches.length) % searchMatches.length;
+    renderSearchResults();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    chooseMatch(searchActiveIndex);
+  } else if (e.key === 'Escape') {
+    searchResults.hidden = true;
+  }
+});
+
+searchResults.addEventListener('mousedown', (e) => {
+  // mousedown, not click: the input's blur would hide this list first.
+  const li = e.target.closest('[data-index]');
+  if (!li) return;
+  e.preventDefault();
+  chooseMatch(Number(li.dataset.index));
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.site-search')) searchResults.hidden = true;
+});
+
+// --- Everyone's drive to one destination -------------------------------
+const routeBlock = document.querySelector('#route-block');
+const routeList = document.querySelector('#route-list');
+const routeDest = document.querySelector('#route-dest');
+const routeSummaryEl = document.querySelector('#route-summary');
+let routeAbort = null;
+
+async function runRoutes(destination, label) {
+  if (!plots.length) return;
+  routeAbort?.abort();
+  routeAbort = new AbortController();
+  const signal = routeAbort.signal;
+
+  meetingPanel.hidden = false;
+  routeBlock.hidden = false;
+  routeDest.textContent = `Drive to ${label}`;
+  routeSummaryEl.textContent = 'Getting routes…';
+  routeList.innerHTML = '';
+
+  try {
+    const results = await routeEveryoneTo(plots, destination, {
+      signal,
+      onProgress: (done, total) => {
+        if (!signal.aborted) routeSummaryEl.textContent = `Getting routes… (${done}/${total})`;
+      },
+    });
+    if (signal.aborted) return;
+
+    controller.renderRoutes(plots, destination, results, routeColor);
+    controller.fitRoutes(results, destination);
+
+    routeList.innerHTML = plots
+      .map((plot, i) => {
+        const r = results[i];
+        const detail = r?.ok
+          ? `<span class="route-time">${formatDuration(r.seconds)}</span><span class="route-miles">${r.miles.toFixed(0)} mi</span>`
+          : `<span class="route-time route-failed">${escapeForAttr(r?.error || 'No route')}</span><span class="route-miles">${r?.miles ? `${r.miles.toFixed(0)} mi direct` : ''}</span>`;
+        return `<li>
+          <span class="route-swatch" style="background:${routeColor(i)}"></span>
+          <span class="route-name">${escapeForAttr(plot.label)}</span>
+          ${detail}
+        </li>`;
+      })
+      .join('');
+
+    const spread = routeSpread(results);
+    const failed = results.filter((r) => !r?.ok).length;
+    const parts = [];
+    if (spread) {
+      parts.push(
+        spread.spread < 60
+          ? `Within ${formatDuration(spread.spread)} of each other.`
+          : `${plots[spread.longestIndex]?.label || 'Someone'} drives ${formatDuration(spread.spread)} longer than the shortest trip.`
+      );
+    }
+    if (failed) parts.push(`${failed} route${failed > 1 ? 's' : ''} unavailable.`);
+    routeSummaryEl.textContent = parts.join(' ') || 'Routes shown on the map.';
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    console.error('Routing failed:', err);
+    routeSummaryEl.textContent = 'Could not reach the routing service. Try again in a moment.';
+  }
+}
+
+document.querySelector('#route-meeting-btn').addEventListener('click', () => {
+  if (currentMeeting) runRoutes(currentMeeting.point, 'the meeting point');
+});
+
+document.querySelector('#route-clear').addEventListener('click', () => {
+  routeAbort?.abort();
+  controller.clearRoutes();
+  routeBlock.hidden = true;
+});
+
+// Deliberately after the radius/search/route wiring above: renderMeeting now
+// calls refreshFocus, which reads those const element handles, and running it
+// any earlier threw a temporal-dead-zone ReferenceError before the map had
+// drawn anything at all.
 renderMeeting();
 
 function toggleChecked(key) {
@@ -361,6 +693,9 @@ async function runSearch({ silent = false } = {}) {
     const { partial, ...categories } = osmResults;
     const results = { ...categories, paidCamping };
     controller.renderResults(results);
+    Object.assign(loadedResults, results);
+    refreshFocus();
+    refreshSearch();
     const total = Object.values(results).reduce((sum, arr) => sum + arr.length, 0);
     if (total === 0) {
       setStatus('Nothing found here — try a different area.');
@@ -467,7 +802,12 @@ document.querySelector('#locate-btn').addEventListener('click', () => {
 // or the search cycle (see nps.js/map.js — only ~474 units nationwide, so
 // there's no reason to ever re-query this per viewport). ---
 getNationalParks()
-  .then((items) => controller.setNationalParks(items))
+  .then((items) => {
+    controller.setNationalParks(items);
+    loadedResults.nationalParks = items;
+    refreshFocus();
+    refreshSearch();
+  })
   .catch((err) => console.error('Failed to load National Parks:', err));
 
 // --- Populate pins on startup, no interaction required ---

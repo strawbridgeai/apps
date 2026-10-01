@@ -519,3 +519,83 @@ button.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none
   }
   .meeting-list { max-height: 108px; }
 }
+
+/* --- Search over the pins currently on the map --- */
+.site-search { position: relative; flex: 1 1 260px; min-width: 0; max-width: 420px; }
+.site-search-input {
+  width: 100%; padding: 9px 12px; font: inherit; font-size: 14px;
+  color: var(--text); background: var(--panel-solid);
+  border: 1px solid var(--border); border-radius: 10px; outline: none;
+}
+.site-search-input::placeholder { color: var(--text-faint); }
+.site-search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15); }
+.site-search-results {
+  position: absolute; z-index: 1200; top: calc(100% + 6px); left: 0; right: 0;
+  margin: 0; padding: 4px; list-style: none; max-height: 320px; overflow-y: auto;
+  background: var(--panel-solid); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(30, 50, 25, 0.16);
+}
+.site-search-results li {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.site-search-results li.is-active,
+.site-search-results li:hover { background: rgba(var(--accent-rgb), 0.12); }
+.site-search-results .search-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.site-search-results .search-dist { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-faint); }
+.site-search-results .search-empty { color: var(--text-dim); cursor: default; font-size: 12px; }
+.site-search-results .search-empty:hover { background: none; }
+
+/* --- Radius control + "in this area" summary --- */
+.radius-control { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+.radius-control select {
+  font: inherit; font-size: 12px; padding: 6px 8px; color: var(--text);
+  background: var(--panel-solid); border: 1px solid var(--border); border-radius: 8px;
+}
+.area-panel {
+  position: absolute; z-index: 900; right: 12px; bottom: 12px; width: 232px;
+  transition: right 0.25s ease;
+  padding: 12px 14px; background: var(--panel-solid); border: 1px solid var(--border);
+  border-radius: 14px; box-shadow: 0 10px 26px rgba(30, 50, 25, 0.14);
+}
+.area-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.area-head strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-radius { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-faint); white-space: nowrap; }
+.area-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.area-list li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-dim); }
+.area-list .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.area-list .area-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-list .area-count { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.area-list .area-empty { color: var(--text-faint); }
+
+/* --- Everyone's drive --- */
+.route-btn {
+  margin-top: 12px; width: 100%; padding: 9px 12px; font: inherit; font-size: 13px; font-weight: 600;
+  color: #fff; background: var(--accent); border: none; border-radius: 10px; cursor: pointer;
+}
+.route-btn:hover { background: var(--accent-dim); }
+.route-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.route-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.route-head strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-list { margin: 0 0 8px; padding: 0; list-style: none; display: grid; gap: 6px; }
+.route-list li { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 8px; font-size: 12px; }
+.route-swatch { width: 10px; height: 10px; border-radius: 3px; }
+.route-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.route-time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.route-miles { font-variant-numeric: tabular-nums; font-size: 11px; color: var(--text-faint); }
+.route-failed { color: var(--danger); font-weight: 500; }
+
+/* The detail panel slides in over the right edge, which is exactly where
+   this sits - without this the area summary ends up underneath it, clipped
+   and unreadable. Slide it clear instead of stacking. */
+.map-area.panel-open .area-panel { right: 352px; }
+
+@media (max-width: 720px) {
+  /* The header is already tight on a phone; give search its own full row
+     rather than squeezing it between the title and the locate button. */
+  .site-search { order: 3; flex-basis: 100%; max-width: none; }
+  .area-panel { right: 8px; bottom: 8px; width: calc(100% - 16px); max-width: 260px; }
+  /* At this width the detail panel covers the full screen, so there is
+     nowhere to slide to - hide the summary rather than shunt it off-screen. */
+  .map-area.panel-open .area-panel { display: none; }
+}
