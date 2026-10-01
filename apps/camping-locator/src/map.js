@@ -29,7 +29,12 @@ export const LAYER_META = {
   stateParks: { label: 'State Parks', color: '#4f8a86', glyph: '\u{1F332}', defaultOn: false },
   water: { label: 'Potable Water', color: '#4a90a4', glyph: '\u{1F4A7}', defaultOn: false },
   paidCamping: { label: 'Paid Campgrounds', color: '#a8825f', glyph: '⛺', defaultOn: false },
+  // NYS DEC data (nydec.js) — only fetched when the view touches New York.
+  nyPrimitive: { label: 'NY Primitive Campsites', color: '#8a6d3b', glyph: '\u{1F3D5}', defaultOn: true },
+  nyLeanTo: { label: 'NY Lean-tos', color: '#6b5844', glyph: '\u{1F6D6}', defaultOn: true },
 };
+
+const NY_DEC_LAYERS = ['nyPrimitive', 'nyLeanTo'];
 
 const PIN_SIZE = 38;
 
@@ -67,6 +72,7 @@ export function tooltipHtml(layerKey, item) {
   if (layerKey === 'freeCamping') sub = t.fee === 'no' ? 'Free (tagged)' : 'Likely free — unverified';
   else if (layerKey === 'paidCamping') sub = 'Fee required';
   else if (layerKey === 'water') sub = 'Potable water';
+  else if (NY_DEC_LAYERS.includes(layerKey)) sub = t.facility ? escapeHtml(t.facility) : LAYER_META[layerKey].label;
   else sub = LAYER_META[layerKey].label;
   return `<div class="camp-tooltip"><strong>${name}</strong><br>${sub}</div>`;
 }
@@ -102,6 +108,12 @@ export function detailHtml(layerKey, item) {
     if (t.phone) rows.push(`Phone: <a href="tel:${escapeHtml(t.phone)}">${escapeHtml(t.phone)}</a>`);
   } else if (layerKey === 'nationalParks' || layerKey === 'stateParks') {
     if (t.operator) rows.push(`Operator: ${escapeHtml(t.operator)}`);
+  } else if (NY_DEC_LAYERS.includes(layerKey)) {
+    rows.push(badgeHtml('success', 'Free — NYS DEC designated site'));
+    if (t.facility) rows.push(escapeHtml(t.facility));
+    if (t.description && t.description !== t.facility) rows.push(escapeHtml(t.description));
+    if (t.notes) rows.push(escapeHtml(t.notes));
+    if (t.accessible) rows.push('♿ Accessible');
   } else if (layerKey === 'water') {
     if (t.access) rows.push(`Access: ${escapeHtml(t.access)}`);
     if (t.seasonal === 'yes') rows.push('Seasonal — may be shut off part of the year');
@@ -115,7 +127,9 @@ export function detailHtml(layerKey, item) {
     : '';
   const osmSource = isOsmId(item.id)
     ? `<a href="https://www.openstreetmap.org/${item.id}" target="_blank" rel="noopener">OSM source</a>`
-    : '';
+    : NY_DEC_LAYERS.includes(layerKey)
+      ? `<a href="https://gisservices.dec.ny.gov/gis/dil/index.html?REC" target="_blank" rel="noopener">Source: NYS DEC</a>`
+      : '';
 
   return `
     <div class="panel-category" style="color:${meta.color}">${meta.glyph} ${meta.label}</div>
@@ -229,8 +243,10 @@ export function createMapController(container, { onMarkerSelect } = {}) {
     }
   }
 
-  function renderResults(results) {
-    for (const key of SEARCH_LAYERS) {
+  // `only` limits the repopulate to some layers, leaving the rest untouched
+  // (used when the OSM part of a search failed but the official APIs didn't).
+  function renderResults(results, { only = SEARCH_LAYERS } = {}) {
+    for (const key of only) {
       populateGroup(key, results[key] || []);
     }
   }

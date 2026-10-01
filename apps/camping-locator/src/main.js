@@ -6,6 +6,7 @@ import { createMapController, LAYER_META, detailHtml } from './map.js';
 import { queryArea, boundsAreaDegrees } from './overpass.js';
 import { getNationalParks } from './nps.js';
 import { queryCampgrounds } from './ridb.js';
+import { queryNyDec } from './nydec.js';
 import { meetingSummary, haversineMiles } from './meetingPoint.js';
 import { routeEveryoneTo, routeColor, formatDuration, routeSpread } from './routing.js';
 
@@ -419,7 +420,10 @@ function currentMatches(query) {
   const out = [];
   for (const key of visibleLayerKeys()) {
     for (const item of loadedResults[key] || []) {
-      const name = item.tags?.name;
+      // DEC sites have generic names ("Campsite 3"), so they are found and
+      // labelled by their forest too ("Campsite 3 · Slide Mountain Wilderness").
+      const facility = item.tags?.facility;
+      const name = facility && item.tags?.name ? `${item.tags.name} · ${facility}` : item.tags?.name;
       if (!name || !name.toLowerCase().includes(q)) continue;
       out.push({ key, item, name, distance: haversineMiles(from, item.point) });
     }
@@ -595,9 +599,10 @@ function toggleChecked(key) {
 // Water, state parks, and paid campgrounds are all excluded from the
 // routine search unless toggled on — water and state parks because their
 // OSM query clauses are expensive (see overpass.js), paid campgrounds
-// because it's a separate RIDB fetch — so turning any of them on for the
+// because it's a separate RIDB fetch (likewise the NYS DEC layers, which
+// are skipped while toggled off) — so turning any of them on for the
 // first time needs its own fetch for the current view.
-const ON_DEMAND_LAYERS = ['water', 'stateParks', 'paidCamping'];
+const ON_DEMAND_LAYERS = ['water', 'stateParks', 'paidCamping', 'nyPrimitive', 'nyLeanTo'];
 
 toggleContainer.addEventListener('change', (e) => {
   const input = e.target.closest('input[data-layer]');
@@ -663,9 +668,28 @@ async function runSearch({ silent = false } = {}) {
 
   searchBtn.disabled = true;
   setStatus('Searching…');
+
+  // Paid campgrounds and NYS DEC sites come from their own APIs and never
+  // reject, so they are started outside the OSM query — if Overpass fails
+  // (it rate-limits often) the catch below can still show these.
+  const wantPaidCamping = toggleChecked('paidCamping');
+  const nyDecKeys = ['nyPrimitive', 'nyLeanTo'].filter(toggleChecked);
+  const extrasPromise = Promise.all([
+    // A RIDB hiccup shouldn't sink the whole search — OSM results (free
+    // camping, state parks, water) still show even if this one fails.
+    wantPaidCamping
+      ? queryCampgrounds(bounds, abortController.signal).catch((err) => {
+          if (!isCurrent()) return [];
+          console.error('RIDB campgrounds fetch failed:', err);
+          return [];
+        })
+      : Promise.resolve([]),
+    // Never rejects — each DEC layer fails to an empty list on its own.
+    queryNyDec(bounds, nyDecKeys, abortController.signal),
+  ]).then(([paidCamping, nyDec]) => ({ paidCamping, nyPrimitive: [], nyLeanTo: [], ...nyDec }));
+
   try {
-    const wantPaidCamping = toggleChecked('paidCamping');
-    const [osmResults, paidCamping] = await Promise.all([
+    const [osmResults, extras] = await Promise.all([
       queryArea(bounds, {
         includeWater: toggleChecked('water'),
         includeStateParks: toggleChecked('stateParks'),
@@ -677,21 +701,13 @@ async function runSearch({ silent = false } = {}) {
           if (total > 1 && isCurrent()) setStatus(`Searching… (${done}/${total})`);
         },
       }),
-      // A RIDB hiccup shouldn't sink the whole search — OSM results (free
-      // camping, state parks, water) still show even if this one fails.
-      wantPaidCamping
-        ? queryCampgrounds(bounds, abortController.signal).catch((err) => {
-            if (!isCurrent()) return [];
-            console.error('RIDB campgrounds fetch failed:', err);
-            return [];
-          })
-        : Promise.resolve([]),
+      extrasPromise,
     ]);
 
     if (!isCurrent()) return; // superseded by a newer search while this one was in flight — discard
 
     const { partial, ...categories } = osmResults;
-    const results = { ...categories, paidCamping };
+    const results = { ...categories, ...extras };
     controller.renderResults(results);
     Object.assign(loadedResults, results);
     refreshFocus();
@@ -710,6 +726,20 @@ async function runSearch({ silent = false } = {}) {
     // Reaching here with isCurrent() still true rules out "superseded by a
     // newer search" (that always bumps the generation first) — an
     // AbortError at this point can only be the deadline timer above.
+    if (err?.name !== 'AbortError') {
+      const extras = await extrasPromise;
+      if (!isCurrent()) return;
+      const extraTotal = Object.values(extras).reduce((sum, arr) => sum + arr.length, 0);
+      if (extraTotal > 0) {
+        // Only these layers are replaced; the OSM ones keep whatever they had.
+        controller.renderResults(extras, { only: Object.keys(extras) });
+        Object.assign(loadedResults, extras);
+        refreshFocus();
+        refreshSearch();
+        setStatus(`Showing ${extraTotal} official sites — OpenStreetMap is busy, try again for the rest.`, !silent);
+        return;
+      }
+    }
     setStatus(
       err?.name === 'AbortError'
         ? 'Search timed out — the data source is slow right now. Try again in a moment.'
