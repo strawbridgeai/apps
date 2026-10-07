@@ -18,7 +18,7 @@ import LayersPanel from './components/LayersPanel.jsx';
 import NewDocumentModal from './components/NewDocumentModal.jsx';
 import { TabList, TabTrigger } from './components/ui/tabs.jsx';
 import { downloadSvg, downloadPng, downloadJpeg, downloadPdf, downloadProjectJson } from './lib/exporters.js';
-import { isImageFile, isProjectFile, imageFileToObject, parseProjectFile } from './lib/importers.js';
+import { RAW_ACCEPT } from './lib/rawImport.js';
 import { clamp } from './lib/utils.js';
 
 const ZOOM_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
@@ -48,8 +48,7 @@ export default function App() {
     toast,
     showToast,
     docSvgRef,
-    addObjects,
-    loadDocument,
+    importFiles,
   } = useDoc();
 
   const [tab, setTab] = useState('properties');
@@ -78,11 +77,11 @@ export default function App() {
     const svg = docSvgRef.current;
     if (!svg) return;
     try {
-      if (kind === 'svg') downloadSvg(svg, doc);
+      if (kind === 'svg') await downloadSvg(svg, doc);
       else if (kind === 'png') await downloadPng(svg, doc, { scale });
       else if (kind === 'jpeg') await downloadJpeg(svg, doc, { scale, quality: exportQuality });
       else if (kind === 'pdf') await downloadPdf(svg, doc, { scale });
-      else if (kind === 'project') downloadProjectJson(doc, objects, groups);
+      else if (kind === 'project') await downloadProjectJson(doc, objects, groups);
       setExportOpen(false);
     } catch {
       showToast('Export failed');
@@ -92,22 +91,7 @@ export default function App() {
   const openFiles = async (files) => {
     setBusy(true);
     try {
-      for (const file of files) {
-        if (isProjectFile(file)) {
-          try {
-            const data = await parseProjectFile(file);
-            loadDocument(data);
-            showToast('Project loaded');
-            continue;
-          } catch {
-            /* fall through, try as image */
-          }
-        }
-        if (isImageFile(file)) {
-          const obj = await imageFileToObject(file, { cx: doc.width / 2, cy: doc.height / 2 });
-          addObjects([obj], { select: true });
-        }
-      }
+      await importFiles(files);
     } finally {
       setBusy(false);
     }
@@ -154,7 +138,7 @@ export default function App() {
           type="file"
           hidden
           multiple
-          accept="image/*,.json"
+          accept={`image/*,.json,${RAW_ACCEPT}`}
           onChange={(e) => {
             const files = [...e.target.files];
             e.target.value = '';

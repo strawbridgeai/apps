@@ -1,13 +1,35 @@
 import { createContext, useContext, useMemo, useRef, useState, useCallback } from 'react';
-import { uid } from '../lib/utils.js';
+import { uid, clamp } from '../lib/utils.js';
 import { unionBounds, axisAlignedBounds } from '../lib/shapes.js';
+import { isImageFile, isProjectFile, imageFileToObject, parseProjectFile, canvasToImageObject } from '../lib/importers.js';
+import { isRawFile, openRawFile } from '../lib/rawImport.js';
+import { canvasToUrl, srcByteSize, releaseUnused } from '../lib/pixelStore.js';
 
 const DocumentCtx = createContext(null);
 
 const DEFAULT_DOC = { name: 'Untitled', width: 1080, height: 1080, background: '#ffffff' };
 
-function clone(v) {
-  return JSON.parse(JSON.stringify(v));
+// Snapshots share structure with live state instead of deep-copying it:
+// every update in this file replaces objects immutably (spread, never
+// mutate), so holding references is safe — and a deep copy would duplicate
+// every photo's multi-megabyte data URL on every single undo step.
+function snapshotOf(doc, objects, groups) {
+  return { doc, objects, groups };
+}
+
+// Undo depth shrinks when the document holds large photos, so retained
+// image versions can't grow to gigabytes (an overestimate: unchanged
+// images are shared between snapshots and only counted once in reality).
+const HISTORY_BYTE_BUDGET = 1.5e9;
+const HISTORY_MAX = 100;
+const HISTORY_MIN = 15;
+function historyLimit(snap) {
+  const bytes = snap.objects.reduce((n, o) => n + srcByteSize(o.src), 0);
+  return bytes ? clamp(Math.floor(HISTORY_BYTE_BUDGET / bytes), HISTORY_MIN, HISTORY_MAX) : HISTORY_MAX;
+}
+
+function collectSrcs(set, snap) {
+  snap.objects.forEach((o) => o.src && set.add(o.src));
 }
 
 export function DocumentProvider({ children }) {
@@ -27,20 +49,35 @@ export function DocumentProvider({ children }) {
   const [brushHardness, setBrushHardness] = useState(0.7);
   const [brushStrength, setBrushStrength] = useState(0.35);
   const [bgTolerance, setBgTolerance] = useState(40);
+  const [cloneAligned, setCloneAligned] = useState(true);
 
   const pastRef = useRef([]);
   const futureRef = useRef([]);
   const [historyTick, setHistoryTick] = useState(0);
   const docSvgRef = useRef(null);
 
+  // Latest objects for async work (RAW decodes finishing in the
+  // background) that must not act on a stale render's closure.
+  const objectsRef = useRef(objects);
+  objectsRef.current = objects;
+  const docRef = useRef(doc);
+  docRef.current = doc;
+
   const getSnapshot = useCallback(
-    () => clone({ doc, objects, groups }),
+    () => snapshotOf(doc, objects, groups),
     [doc, objects, groups]
   );
 
   const pushUndoPoint = useCallback((snap) => {
     pastRef.current.push(snap);
-    if (pastRef.current.length > 100) pastRef.current.shift();
+    const limit = historyLimit(snap);
+    while (pastRef.current.length > limit) pastRef.current.shift();
+    // Free image versions that fell out of history (or were discarded
+    // redo branches) once nothing references them any more.
+    const live = new Set();
+    collectSrcs(live, { objects: objectsRef.current });
+    pastRef.current.forEach((s) => collectSrcs(live, s));
+    releaseUnused(live);
     futureRef.current = [];
     setHistoryTick((t) => t + 1);
   }, []);
@@ -279,6 +316,149 @@ export function DocumentProvider({ children }) {
     [getSnapshot, pushUndoPoint]
   );
 
+  const zoomToFit = useCallback((w, h) => {
+    const area = document.querySelector('.canvas-area');
+    if (!area) return;
+    const z = Math.min((area.clientWidth - 64) / w, (area.clientHeight - 64) / h, 1);
+    setZoom(Math.max(0.02, Math.floor(z * 100) / 100));
+  }, []);
+
+  // Swap a RAW layer's instant camera preview for the real demosaiced
+  // sensor data once the background decode finishes — but only if the
+  // preview hasn't been edited in the meantime, so no edits are lost.
+  // Undo/redo snapshots are patched too, so undoing past this point
+  // doesn't resurrect the preview.
+  const finishRawDecode = useCallback(
+    async (id, previewSrc, canvas) => {
+      const current = objectsRef.current.find((o) => o.id === id);
+      if (!current) return;
+      if (current.src !== previewSrc) {
+        setObjects((prev) => prev.map((o) => (o.id === id ? { ...o, rawStatus: 'preview-edited' } : o)));
+        showToast('RAW decode finished — kept your edits on the camera preview');
+        return;
+      }
+      const src = await canvasToUrl(canvas);
+      if (objectsRef.current.find((o) => o.id === id)?.src !== previewSrc) return;
+      // The decoded frame can differ by a few pixels from the camera's
+      // preview (e.g. 3664×2742 vs 3648×2736), so adopt its true size: a
+      // photo that *is* the document resizes the document with it; any
+      // other layer keeps its width and corrects its height to the aspect.
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const swap = (snap) => {
+        let nextDoc = snap.doc;
+        const nextObjects = snap.objects.map((o) => {
+          if (o.id !== id || o.src !== previewSrc) return o;
+          const isDocPhoto = o.x === 0 && o.y === 0 && o.width === nextDoc.width && o.height === nextDoc.height;
+          let box = { height: (o.width * ch) / cw };
+          if (isDocPhoto) {
+            box = { width: cw, height: ch };
+            nextDoc = { ...nextDoc, width: cw, height: ch };
+          }
+          return { ...o, ...box, src, pixelWidth: cw, pixelHeight: ch, rawStatus: 'raw' };
+        });
+        return { ...snap, doc: nextDoc, objects: nextObjects };
+      };
+      const present = swap({ doc: docRef.current, objects: objectsRef.current });
+      setObjects(present.objects);
+      if (present.doc !== docRef.current) setDoc(present.doc);
+      pastRef.current = pastRef.current.map(swap);
+      futureRef.current = futureRef.current.map(swap);
+      showToast('Full RAW data loaded');
+    },
+    [showToast]
+  );
+
+  // Single entry point for the Open button, drag-and-drop, and paste.
+  // The first photo opened into an empty document becomes the document
+  // (sized to the photo's pixels, zoomed to fit), like opening a file in
+  // Photoshop or GIMP; later ones are added as layers.
+  const importFiles = useCallback(
+    async (files) => {
+      let placedCount = 0;
+      let lastAdded = [];
+      const place = (obj) => {
+        const asDocument = objectsRef.current.length === 0 && placedCount === 0;
+        if (asDocument) {
+          const w = obj.pixelWidth;
+          const h = obj.pixelHeight;
+          const full = { ...obj, x: 0, y: 0, width: w, height: h };
+          commit(() => {
+            setDoc((d) => ({ ...d, name: obj.name, width: w, height: h }));
+            setObjects((prev) => [...prev, full]);
+          });
+          zoomToFit(w, h);
+          lastAdded = [full];
+        } else {
+          const off = placedCount * 24;
+          const moved = { ...obj, x: obj.x + off, y: obj.y + off };
+          commit(() => setObjects((prev) => [...prev, moved]));
+          lastAdded = [...lastAdded, moved];
+        }
+        placedCount++;
+        setSelectedIds(lastAdded.map((o) => o.id));
+      };
+      const center = { cx: doc.width / 2, cy: doc.height / 2 };
+
+      for (const file of files) {
+        const name = file.name.replace(/\.[^.]+$/, '');
+        if (isProjectFile(file)) {
+          try {
+            loadDocument(await parseProjectFile(file));
+            showToast('Project loaded');
+            return;
+          } catch {
+            /* fall through and try as image */
+          }
+        }
+        if (isRawFile(file)) {
+          const ext = file.name.split('.').pop().toUpperCase();
+          showToast(`Opening ${ext} file…`);
+          let opened;
+          try {
+            opened = await openRawFile(file);
+          } catch {
+            showToast(`Couldn't read ${file.name} as a RAW file`);
+            continue;
+          }
+          const { meta, preview, full } = opened;
+          const extra = { rawFormat: ext, rawMeta: meta };
+          if (preview) {
+            const obj = await canvasToImageObject(preview, { name, ...center, extra: { ...extra, rawStatus: 'decoding' } });
+            place(obj);
+            showToast('Showing camera preview — decoding RAW sensor data…');
+            full
+              .then((canvas) => finishRawDecode(obj.id, obj.src, canvas))
+              .catch(() => {
+                setObjects((prev) => prev.map((o) => (o.id === obj.id ? { ...o, rawStatus: 'preview-only' } : o)));
+                showToast(`This ${ext} variant can't be decoded — using the camera's embedded preview`);
+              });
+          } else {
+            showToast(`Decoding ${ext} sensor data — large files can take a while…`);
+            try {
+              const canvas = await full;
+              place(await canvasToImageObject(canvas, { name, ...center, extra: { ...extra, rawStatus: 'raw' } }));
+            } catch {
+              showToast(`Couldn't decode ${file.name}`);
+            }
+          }
+          continue;
+        }
+        if (isImageFile(file)) {
+          try {
+            place(await imageFileToObject(file, center));
+          } catch {
+            showToast(`Couldn't open ${file.name}`);
+          }
+          continue;
+        }
+        showToast(`${file.name} isn't a supported file`);
+      }
+      if (placedCount > 1) showToast(`Added ${placedCount} images`);
+    },
+    [doc.width, doc.height, commit, zoomToFit, loadDocument, finishRawDecode, showToast]
+  );
+
   const value = {
     doc,
     setDoc,
@@ -306,6 +486,8 @@ export function DocumentProvider({ children }) {
     alignSelected,
     newDocument,
     loadDocument,
+    importFiles,
+    zoomToFit,
     getSnapshot,
     pushUndoPoint,
     undo,
@@ -326,6 +508,8 @@ export function DocumentProvider({ children }) {
     setBrushStrength,
     bgTolerance,
     setBgTolerance,
+    cloneAligned,
+    setCloneAligned,
   };
 
   return <DocumentCtx.Provider value={value}>{children}</DocumentCtx.Provider>;

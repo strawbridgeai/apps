@@ -1,11 +1,21 @@
 import { downloadBlob, loadImage } from './utils.js';
+import { toPortableSrc } from './pixelStore.js';
 
 // All exports work straight off the live content-only <svg> DOM node (the
 // canvas stage keeps selection handles in a separate overlay <div>, so this
 // node is always a clean, exportable document) — one source of truth for
 // both on-screen rendering and every export format.
-export function svgNodeToString(svgNode, { width, height, background }) {
+// Image layers reference session-local blob: URLs (see pixelStore.js),
+// which an exported file — or an SVG loaded through <img> for
+// rasterizing — can't resolve, so they're inlined as data: URLs here.
+export async function svgNodeToString(svgNode, { width, height, background }) {
   const clone = svgNode.cloneNode(true);
+  await Promise.all(
+    [...clone.querySelectorAll('image')].map(async (el) => {
+      const href = el.getAttribute('href');
+      if (href?.startsWith('blob:')) el.setAttribute('href', await toPortableSrc(href));
+    })
+  );
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', width);
   clone.setAttribute('height', height);
@@ -22,13 +32,13 @@ export function svgNodeToString(svgNode, { width, height, background }) {
   return new XMLSerializer().serializeToString(clone);
 }
 
-export function downloadSvg(svgNode, doc) {
-  const str = svgNodeToString(svgNode, { width: doc.width, height: doc.height, background: doc.background });
+export async function downloadSvg(svgNode, doc) {
+  const str = await svgNodeToString(svgNode, { width: doc.width, height: doc.height, background: doc.background });
   downloadBlob(new Blob([str], { type: 'image/svg+xml' }), `${doc.name || 'artwork'}.svg`);
 }
 
 async function rasterize(svgNode, doc, { scale = 2, transparent = false } = {}) {
-  const str = svgNodeToString(svgNode, {
+  const str = await svgNodeToString(svgNode, {
     width: doc.width,
     height: doc.height,
     background: transparent ? null : doc.background,
@@ -80,8 +90,11 @@ export async function downloadPdf(svgNode, doc, { scale = 2 } = {}) {
   downloadBlob(new Blob([bytes], { type: 'application/pdf' }), `${doc.name || 'artwork'}.pdf`);
 }
 
-export function downloadProjectJson(doc, objects, groups) {
-  const data = { kind: 'vector-studio-project', version: 1, doc, objects, groups };
+export async function downloadProjectJson(doc, objects, groups) {
+  const portable = await Promise.all(
+    objects.map(async (o) => (o.src ? { ...o, src: await toPortableSrc(o.src) } : o))
+  );
+  const data = { kind: 'vector-studio-project', version: 1, doc, objects: portable, groups };
   downloadBlob(
     new Blob([JSON.stringify(data)], { type: 'application/json' }),
     `${doc.name || 'project'}.vsproj.json`

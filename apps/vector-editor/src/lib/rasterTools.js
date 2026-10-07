@@ -4,30 +4,15 @@
 // mutate an offscreen canvas directly (cheap) and only write back to
 // `src` — and therefore to undo history — once, on pointer-up.
 
-export async function canvasFromDataUrl(src, pixelWidth, pixelHeight) {
-  const img = new Image();
-  await new Promise((resolve, reject) => {
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = src;
-  });
-  const canvas = document.createElement('canvas');
-  canvas.width = pixelWidth;
-  canvas.height = pixelHeight;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0, pixelWidth, pixelHeight);
-  return canvas;
-}
+// Layer pixels live in pixelStore (blob URLs + a decoded-canvas cache);
+// these names are kept for the existing call sites.
+export { canvasFromSrc as canvasFromDataUrl, canvasToUrl } from './pixelStore.js';
 
 export function blankCanvas(pixelWidth, pixelHeight) {
   const canvas = document.createElement('canvas');
   canvas.width = pixelWidth;
   canvas.height = pixelHeight;
   return canvas;
-}
-
-export function canvasToDataUrl(canvas) {
-  return canvas.toDataURL('image/png');
 }
 
 export function paintBrushDab(ctx, x, y, { size, color, opacity = 1, hardness = 0.7 }) {
@@ -232,48 +217,6 @@ function clamp255(v) {
   return v < 0 ? 0 : v > 255 ? 255 : v;
 }
 
-// Exposure/highlights/blacks in one pass, always computed from `source`
-// (an unmodified snapshot of the image at the start of the current editing
-// session) rather than the working canvas, so repeated slider moves
-// recompute a delta from the same starting point instead of compounding.
-export function applyTonalAdjustments(ctx, source, { exposure = 0, highlights = 0, blacks = 0 }) {
-  const { width, height } = source;
-  const srcData = source.getContext('2d').getImageData(0, 0, width, height);
-  const outData = ctx.createImageData(width, height);
-  const src = srcData.data;
-  const out = outData.data;
-  const expMul = Math.pow(2, (exposure / 100) * 3); // slider -100..100 -> -3..+3 EV stops
-  const hAmt = highlights / 100;
-  const bAmt = blacks / 100;
-  for (let i = 0; i < src.length; i += 4) {
-    let r = src[i] * expMul;
-    let g = src[i + 1] * expMul;
-    let b = src[i + 2] * expMul;
-    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-
-    // Highlights: scale pixels weighted toward the bright end; negative
-    // recovers blown-out areas, positive boosts them further.
-    const highMask = smoothstep(0.45, 1, lum);
-    const hFactor = 1 + hAmt * highMask * 0.9;
-    r *= hFactor;
-    g *= hFactor;
-    b *= hFactor;
-
-    // Blacks: lift or crush the dark end (the tone-curve black point).
-    const lowMask = 1 - smoothstep(0, 0.55, lum);
-    const bOffset = bAmt * lowMask * 90;
-    r += bOffset;
-    g += bOffset;
-    b += bOffset;
-
-    out[i] = clamp255(r);
-    out[i + 1] = clamp255(g);
-    out[i + 2] = clamp255(b);
-    out[i + 3] = src[i + 3];
-  }
-  ctx.putImageData(outData, 0, 0);
-}
-
 // 3x3 median filter — the standard cheap way to knock down per-pixel grain
 // while preserving edges much better than a box/gaussian blur would.
 function medianFilter3x3(imageData) {
@@ -375,4 +318,119 @@ export function applyBokeh(ctx, source, { focusX, focusY, radius, feather, stren
   mctx.fillRect(0, 0, width, height);
 
   ctx.drawImage(sharpMasked, 0, 0);
+}
+
+// ---------------- retouching brushes: clone, heal, smudge ----------------
+
+function softMaskInPlace(canvas, hardness) {
+  const ctx = canvas.getContext('2d');
+  const r = canvas.width / 2;
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-in';
+  const grad = ctx.createRadialGradient(r, r, r * Math.min(0.95, hardness), r, r, r);
+  grad.addColorStop(0, 'rgba(0,0,0,1)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
+
+function patchFrom(source, cx, cy, d) {
+  const patch = document.createElement('canvas');
+  patch.width = d;
+  patch.height = d;
+  patch.getContext('2d', { willReadFrequently: true }).drawImage(source, -(cx - d / 2), -(cy - d / 2));
+  return patch;
+}
+
+// Mean color of the outer ring of a dab-sized patch — the healthy pixels
+// *around* a blemish, not the blemish itself.
+function ringMean(patch) {
+  const d = patch.width;
+  const data = patch.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, d, d).data;
+  const r = d / 2;
+  let sr = 0, sg = 0, sb = 0, n = 0;
+  for (let y = 0; y < d; y++) {
+    for (let x = 0; x < d; x++) {
+      const dist = Math.hypot(x + 0.5 - r, y + 0.5 - r);
+      if (dist < r * 0.75 || dist > r) continue;
+      const i = (y * d + x) * 4;
+      if (data[i + 3] < 8) continue;
+      sr += data[i];
+      sg += data[i + 1];
+      sb += data[i + 2];
+      n++;
+    }
+  }
+  return n ? { r: sr / n, g: sg / n, b: sb / n } : null;
+}
+
+// Clone stamp (and, with heal=true, a healing brush): paints pixels from
+// (sx, sy) of `source` — a snapshot of the image taken when the stroke
+// began, so the stamp never re-samples its own output — onto (x, y). The
+// healing variant shifts the copied texture's color to match the ring of
+// pixels around the destination, so a patch of clean skin or sky blends
+// into a different-toned area instead of looking pasted on.
+export function cloneDab(ctx, source, x, y, sx, sy, { size, hardness = 0.5, heal = false }) {
+  const d = Math.max(2, Math.round(size));
+  const patch = patchFrom(source, sx, sy, d);
+  if (heal) {
+    const srcMean = ringMean(patch);
+    const dstMean = ringMean(patchFrom(source, x, y, d));
+    if (srcMean && dstMean) {
+      const pctx = patch.getContext('2d', { willReadFrequently: true });
+      const img = pctx.getImageData(0, 0, d, d);
+      const p = img.data;
+      const dr = dstMean.r - srcMean.r;
+      const dg = dstMean.g - srcMean.g;
+      const db = dstMean.b - srcMean.b;
+      for (let i = 0; i < p.length; i += 4) {
+        p[i] += dr;
+        p[i + 1] += dg;
+        p[i + 2] += db;
+      }
+      pctx.putImageData(img, 0, 0);
+    }
+  }
+  softMaskInPlace(patch, heal ? Math.min(hardness, 0.35) : hardness);
+  ctx.drawImage(patch, x - d / 2, y - d / 2);
+}
+
+// Smudge: drags picked-up color along the stroke. `state.patch` carries the
+// paint between dabs; each dab deposits it, then picks up some of what's
+// underneath (GIMP/Photoshop's smudge "rate"/"strength").
+export function smudgeDab(ctx, state, x, y, { size, strength = 0.5 }) {
+  const d = Math.max(2, Math.round(size));
+  if (!state.patch || state.patch.width !== d) {
+    state.patch = patchFrom(ctx.canvas, x, y, d);
+    return;
+  }
+  const masked = document.createElement('canvas');
+  masked.width = d;
+  masked.height = d;
+  const mctx = masked.getContext('2d');
+  mctx.drawImage(state.patch, 0, 0);
+  softMaskInPlace(masked, 0.3);
+  ctx.save();
+  ctx.globalAlpha = Math.min(1, strength);
+  ctx.drawImage(masked, x - d / 2, y - d / 2);
+  ctx.restore();
+  const pctx = state.patch.getContext('2d');
+  pctx.save();
+  pctx.globalAlpha = 1 - Math.min(0.95, strength);
+  pctx.drawImage(ctx.canvas, -(x - d / 2), -(y - d / 2));
+  pctx.restore();
+}
+
+// Low-res stand-in written to the layer while a stroke is still in
+// progress: re-encoding a 24MP photo as PNG on every mouse move would
+// stall the UI. The full-resolution canvas is encoded once on pointer-up.
+export function previewDataUrl(canvas, maxEdge = 1600) {
+  const scale = Math.min(1, maxEdge / Math.max(canvas.width, canvas.height));
+  if (scale === 1) return canvas.toDataURL('image/png');
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.round(canvas.width * scale));
+  out.height = Math.max(1, Math.round(canvas.height * scale));
+  out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
+  return out.toDataURL('image/png');
 }

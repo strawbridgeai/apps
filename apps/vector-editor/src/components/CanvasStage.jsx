@@ -13,7 +13,7 @@ import {
 import {
   canvasFromDataUrl,
   blankCanvas,
-  canvasToDataUrl,
+  canvasToUrl,
   paintBrushDab,
   eraseDab,
   blurDab,
@@ -23,10 +23,13 @@ import {
   detectBackgroundColor,
   removeBackgroundByColor,
   cropCanvas,
+  cloneDab,
+  smudgeDab,
+  previewDataUrl,
 } from '../lib/rasterTools.js';
-import { isImageFile, isProjectFile, imageFileToObject, parseProjectFile } from '../lib/importers.js';
 
-const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge'];
+const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'clone', 'heal', 'smudge'];
+const SOURCE_TOOLS = ['clone', 'heal'];
 
 export default function CanvasStage() {
   const {
@@ -48,7 +51,7 @@ export default function CanvasStage() {
     pushUndoPoint,
     showToast,
     docSvgRef,
-    loadDocument,
+    importFiles,
     undo,
     redo,
     duplicateSelected,
@@ -58,6 +61,7 @@ export default function CanvasStage() {
     brushHardness,
     brushStrength,
     bgTolerance,
+    cloneAligned,
   } = useDoc();
 
   const stageRef = useRef(null);
@@ -71,6 +75,10 @@ export default function CanvasStage() {
   const [isDropTarget, setDropTarget] = useState(false);
   const [brushCursor, setBrushCursor] = useState(null);
   const spaceHeldRef = useRef(false);
+  // Clone/heal source: { id, x, y } in the image's pixel space, plus the
+  // source→destination offset that "aligned" mode keeps between strokes.
+  const [cloneSource, setCloneSource] = useState(null);
+  const cloneOffsetRef = useRef(null);
 
   const single = selectedObjects.length === 1 ? selectedObjects[0] : null;
 
@@ -84,57 +92,62 @@ export default function CanvasStage() {
   );
 
   // ---- keyboard shortcuts ----
+  // The window listener is bound once and always calls the handler from
+  // the latest render, so shortcuts never act on stale state (a stale
+  // undo/redo closure made Ctrl+Shift+Z restore the wrong snapshot).
+  const keyDownRef = useRef(null);
+  keyDownRef.current = (e) => {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || editingTextId) {
+      if (e.key === 'Escape') finishTextEdit(false);
+      return;
+    }
+    if (e.code === 'Space') spaceHeldRef.current = true;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      e.shiftKey ? redo() : undo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      redo();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === 'd') {
+      e.preventDefault();
+      duplicateSelected();
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selectedIds.length) {
+        e.preventDefault();
+        removeObjects(selectedIds);
+      }
+    }
+    if (e.key === 'Escape') {
+      setPendingPath(null);
+      setSelectedIds([]);
+      setCropRect(null);
+      setActiveTool('select');
+    }
+    if (e.key === 'Enter' && pendingPath && pendingPath.length > 1) {
+      finalizePath(false);
+    }
+    if (e.key === 'Enter' && activeTool === 'crop' && cropRect) {
+      applyCrop();
+    }
+    const arrowMap = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    if (arrowMap[e.key] && selectedIds.length) {
+      e.preventDefault();
+      const step = e.shiftKey ? 10 : 1;
+      const [dx, dy] = arrowMap[e.key];
+      const pre = getSnapshot();
+      patchObjectsLive(selectedIds, (o) => ({ x: o.x + dx * step, y: o.y + dy * step }));
+      pushUndoPoint(pre);
+    }
+  };
   useEffect(() => {
-    const onKeyDown = (e) => {
-      const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || editingTextId) {
-        if (e.key === 'Escape') finishTextEdit(false);
-        return;
-      }
-      if (e.code === 'Space') spaceHeldRef.current = true;
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        e.shiftKey ? redo() : undo();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === 'y') {
-        e.preventDefault();
-        redo();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === 'd') {
-        e.preventDefault();
-        duplicateSelected();
-      }
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedIds.length) {
-          e.preventDefault();
-          removeObjects(selectedIds);
-        }
-      }
-      if (e.key === 'Escape') {
-        setPendingPath(null);
-        setSelectedIds([]);
-        setCropRect(null);
-        setActiveTool('select');
-      }
-      if (e.key === 'Enter' && pendingPath && pendingPath.length > 1) {
-        finalizePath(false);
-      }
-      if (e.key === 'Enter' && activeTool === 'crop' && cropRect) {
-        applyCrop();
-      }
-      const arrowMap = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
-      if (arrowMap[e.key] && selectedIds.length) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const [dx, dy] = arrowMap[e.key];
-        const pre = getSnapshot();
-        patchObjectsLive(selectedIds, (o) => ({ x: o.x + dx * step, y: o.y + dy * step }));
-        pushUndoPoint(pre);
-      }
-    };
+    const onKeyDown = (e) => keyDownRef.current(e);
     const onKeyUp = (e) => {
       if (e.code === 'Space') spaceHeldRef.current = false;
     };
@@ -144,7 +157,7 @@ export default function CanvasStage() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [selectedIds, editingTextId, pendingPath, activeTool, cropRect]);
+  }, []);
 
   // Enter crop tool -> seed crop rect to the selected image's full bounds.
   useEffect(() => {
@@ -235,8 +248,9 @@ export default function CanvasStage() {
       const ly = ((y - single.y) / single.height) * single.pixelHeight;
       const color = samplePixel(ctx, lx, ly);
       removeBackgroundByColor(ctx, color, bgTolerance);
-      const pre = getSnapshot();
-      updateObjects([single.id], () => ({ src: canvasToDataUrl(ctx.canvas) }));
+      const src = await canvasToUrl(ctx.canvas);
+      rasterCacheRef.current.get(single.id).src = src;
+      updateObjects([single.id], () => ({ src }));
       setActiveTool('select');
       return;
     }
@@ -263,15 +277,45 @@ export default function CanvasStage() {
         selectObjects([target.id]);
       }
       const { ctx } = await getRasterCanvas(target);
-      const pre = getSnapshot();
       const lx = ((x - target.x) / target.width) * target.pixelWidth;
       const ly = ((y - target.y) / target.height) * target.pixelHeight;
-      paintAt(ctx, activeTool, lx, ly);
+
+      if (SOURCE_TOOLS.includes(activeTool)) {
+        // Alt/Option-click picks the source point, as in Photoshop/GIMP.
+        if (e.altKey) {
+          setCloneSource({ id: target.id, x: lx, y: ly });
+          cloneOffsetRef.current = null;
+          showToast('Source point set — now paint over the area to fix');
+          return;
+        }
+        if (!cloneSource || cloneSource.id !== target.id) {
+          showToast('Alt-click (Option-click) the image to pick a source point first');
+          return;
+        }
+      }
+
+      const pre = getSnapshot();
+      const stroke = { tool: activeTool };
+      if (SOURCE_TOOLS.includes(activeTool)) {
+        if (!cloneAligned || !cloneOffsetRef.current) {
+          cloneOffsetRef.current = [cloneSource.x - lx, cloneSource.y - ly];
+        }
+        stroke.offset = cloneOffsetRef.current;
+        // Sample from the image as it was when the stroke began, so the
+        // stamp never picks up pixels it just painted.
+        const snap = document.createElement('canvas');
+        snap.width = ctx.canvas.width;
+        snap.height = ctx.canvas.height;
+        snap.getContext('2d').drawImage(ctx.canvas, 0, 0);
+        stroke.source = snap;
+      }
+      paintAt(ctx, stroke, lx, ly);
       interactionRef.current = {
         kind: 'paint',
         id: target.id,
         ctx,
         pre,
+        stroke,
         last: [lx, ly],
         lastFlush: 0,
       };
@@ -280,7 +324,13 @@ export default function CanvasStage() {
     }
   };
 
-  function paintAt(ctx, tool, lx, ly) {
+  function paintAt(ctx, stroke, lx, ly) {
+    const { tool } = stroke;
+    if (tool === 'clone' || tool === 'heal') {
+      const [ox, oy] = stroke.offset;
+      cloneDab(ctx, stroke.source, lx, ly, lx + ox, ly + oy, { size: brushSize, hardness: brushHardness, heal: tool === 'heal' });
+    }
+    if (tool === 'smudge') smudgeDab(ctx, stroke, lx, ly, { size: brushSize, strength: brushStrength });
     if (tool === 'brush') paintBrushDab(ctx, lx, ly, { size: brushSize, color: brushColor, opacity: brushOpacity, hardness: brushHardness });
     if (tool === 'eraser') eraseDab(ctx, lx, ly, brushSize);
     if (tool === 'blur') blurDab(ctx, lx, ly, brushSize);
@@ -288,8 +338,14 @@ export default function CanvasStage() {
     if (tool === 'dodge') dodgeDab(ctx, lx, ly, { size: brushSize, strength: brushStrength });
   }
 
-  function flushPaint(id, ctx) {
-    patchObjectsLive([id], () => ({ src: canvasToDataUrl(ctx.canvas) }));
+  // The cache canvas *is* the stroke's result, so each flush re-points the
+  // cache at the src it just wrote — otherwise the next stroke would
+  // re-decode (and, mid-stroke, a low-res preview would replace it).
+  async function flushPaint(id, ctx, final = false) {
+    const src = final ? await canvasToUrl(ctx.canvas) : previewDataUrl(ctx.canvas);
+    const entry = rasterCacheRef.current.get(id);
+    if (entry && entry.ctx === ctx) entry.src = src;
+    patchObjectsLive([id], () => ({ src }));
   }
 
   const handleStagePointerMove = (e) => {
@@ -386,11 +442,11 @@ export default function CanvasStage() {
       const steps = Math.max(1, Math.floor(dist / spacing));
       for (let i = 1; i <= steps; i++) {
         const t = i / steps;
-        paintAt(interaction.ctx, activeTool, lastX + (lx - lastX) * t, lastY + (ly - lastY) * t);
+        paintAt(interaction.ctx, interaction.stroke, lastX + (lx - lastX) * t, lastY + (ly - lastY) * t);
       }
       interaction.last = [lx, ly];
       const now = performance.now();
-      if (now - interaction.lastFlush > 45) {
+      if (now - interaction.lastFlush > 60) {
         flushPaint(interaction.id, interaction.ctx);
         interaction.lastFlush = now;
       }
@@ -433,8 +489,8 @@ export default function CanvasStage() {
       pushUndoPoint(interaction.pre);
     }
     if (interaction.kind === 'paint') {
-      flushPaint(interaction.id, interaction.ctx);
-      pushUndoPoint(interaction.pre);
+      const { id, ctx, pre } = interaction;
+      flushPaint(id, ctx, true).then(() => pushUndoPoint(pre));
     }
     interactionRef.current = null;
   };
@@ -477,9 +533,9 @@ export default function CanvasStage() {
     const lw = (cropRect.width / single.width) * single.pixelWidth;
     const lh = (cropRect.height / single.height) * single.pixelHeight;
     const cropped = cropCanvas(ctx.canvas, { x: lx, y: ly, width: lw, height: lh });
-    const pre = getSnapshot();
+    const src = await canvasToUrl(cropped);
     updateObjects([single.id], () => ({
-      src: canvasToDataUrl(cropped),
+      src,
       x: cropRect.x,
       y: cropRect.y,
       width: cropRect.width,
@@ -496,7 +552,9 @@ export default function CanvasStage() {
     const { ctx } = await getRasterCanvas(single);
     const target = detectBackgroundColor(ctx);
     removeBackgroundByColor(ctx, target, bgTolerance);
-    updateObjects([single.id], () => ({ src: canvasToDataUrl(ctx.canvas) }));
+    const src = await canvasToUrl(ctx.canvas);
+    rasterCacheRef.current.get(single.id).src = src;
+    updateObjects([single.id], () => ({ src }));
   }
 
   // expose a couple of actions PropertiesPanel needs without prop drilling
@@ -543,36 +601,6 @@ export default function CanvasStage() {
   }
 
   // ---- drag & drop / paste import ----
-  async function importFiles(files) {
-    const rect = docSvgRef.current.getBoundingClientRect();
-    const cx = doc.width / 2;
-    const cy = doc.height / 2;
-    const images = [];
-    for (const file of files) {
-      if (isProjectFile(file)) {
-        try {
-          const data = await parseProjectFile(file);
-          loadDocument(data);
-          showToast('Project loaded');
-          return;
-        } catch {
-          /* fall through and try as image */
-        }
-      }
-      if (isImageFile(file)) {
-        images.push(await imageFileToObject(file, { cx, cy }));
-      }
-    }
-    if (images.length) {
-      images.forEach((img, i) => {
-        img.x += i * 24;
-        img.y += i * 24;
-      });
-      addObjects(images, { select: true });
-      showToast(`Added ${images.length} image${images.length > 1 ? 's' : ''}`);
-    }
-  }
-
   useEffect(() => {
     const onPaste = (e) => {
       const files = [...(e.clipboardData?.files || [])];
@@ -580,7 +608,7 @@ export default function CanvasStage() {
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [doc.width, doc.height]);
+  }, [importFiles]);
 
   const onDrop = (e) => {
     e.preventDefault();
@@ -653,6 +681,25 @@ export default function CanvasStage() {
           {activeTool === 'crop' && cropRect && (
             <CropOverlay rect={cropRect} zoom={zoom} onBodyDown={startCropBodyDrag} onHandleDown={startCropHandleDrag} />
           )}
+
+          {SOURCE_TOOLS.includes(activeTool) && cloneSource && (() => {
+            const img = objects.find((o) => o.id === cloneSource.id);
+            if (!img) return null;
+            let px = cloneSource.x;
+            let py = cloneSource.y;
+            const live = interactionRef.current?.kind === 'paint' ? interactionRef.current : null;
+            if (live && brushCursor) {
+              // While painting, the source crosshair follows the brush.
+              const [lx, ly] = live.last;
+              px = lx + live.stroke.offset[0];
+              py = ly + live.stroke.offset[1];
+            }
+            const sx = (img.x + (px / img.pixelWidth) * img.width) * zoom;
+            const sy = (img.y + (py / img.pixelHeight) * img.height) * zoom;
+            return (
+              <div className="clone-source-marker" style={{ left: sx, top: sy }} />
+            );
+          })()}
 
           {brushCursor && PAINT_TOOLS.includes(activeTool) && (
             <div

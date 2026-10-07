@@ -13,6 +13,9 @@ import {
   Droplets,
   Flame,
   SunMedium,
+  Stamp,
+  Bandage,
+  Pointer,
 } from 'lucide-react';
 import { useDoc } from '../state/DocumentContext.jsx';
 
@@ -42,6 +45,12 @@ const PAINT_TOOLS = [
   { id: 'dodge', label: 'Dodge (lighten)', Icon: SunMedium, needsImage: true },
 ];
 
+const RETOUCH_TOOLS = [
+  { id: 'clone', label: 'Clone stamp (Alt-click to set source)', Icon: Stamp, needsImage: true },
+  { id: 'heal', label: 'Healing brush (Alt-click to set source)', Icon: Bandage, needsImage: true },
+  { id: 'smudge', label: 'Smudge', Icon: Pointer, needsImage: true },
+];
+
 export default function ToolRail() {
   const { activeTool, setActiveTool, selectedObjects } = useDoc();
   const hasImage = selectedObjects.length === 1 && selectedObjects[0].type === 'image';
@@ -68,6 +77,8 @@ export default function ToolRail() {
       {renderGroup(IMAGE_TOOLS)}
       <div className="tool-rail-sep" />
       {renderGroup(PAINT_TOOLS)}
+      <div className="tool-rail-sep" />
+      {renderGroup(RETOUCH_TOOLS)}
     </div>
   );
 }

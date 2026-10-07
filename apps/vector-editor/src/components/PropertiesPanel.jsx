@@ -20,7 +20,20 @@ import { useDoc } from '../state/DocumentContext.jsx';
 import { Field, RangeField } from './ui/field.jsx';
 import ImageAdjustPanel from './ImageAdjustPanel.jsx';
 
-const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge'];
+const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'clone', 'heal', 'smudge'];
+const TOOL_TITLES = { clone: 'Clone stamp', heal: 'Healing brush', smudge: 'Smudge' };
+const TOOL_HINTS = {
+  clone: 'Alt-click (Option-click on Mac) the image to pick a source point, then paint to copy it over the target area.',
+  heal: 'Like the clone stamp, but blends the copied texture into the colors around where you paint — best for spots, blemishes and dust.',
+  smudge: 'Drag to push and smear pixels, like a finger through wet paint.',
+};
+// Photoshop/GIMP layer modes; all map 1:1 to CSS mix-blend-mode.
+const BLEND_MODES = [
+  ['normal', 'Normal'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'],
+  ['darken', 'Darken'], ['lighten', 'Lighten'], ['color-dodge', 'Color dodge'], ['color-burn', 'Color burn'],
+  ['hard-light', 'Hard light'], ['soft-light', 'Soft light'], ['difference', 'Difference'], ['exclusion', 'Exclusion'],
+  ['hue', 'Hue'], ['saturation', 'Saturation'], ['color', 'Color'], ['luminosity', 'Luminosity'],
+];
 const FONTS = ['system-ui, sans-serif', 'Georgia, serif', '"Courier New", monospace', 'Impact, sans-serif'];
 
 export default function PropertiesPanel() {
@@ -50,13 +63,15 @@ export default function PropertiesPanel() {
     setBrushStrength,
     bgTolerance,
     setBgTolerance,
+    cloneAligned,
+    setCloneAligned,
   } = useDoc();
 
   if (PAINT_TOOLS.includes(activeTool)) {
     return (
       <div className="panel-scroll">
-        <div className="panel-section-title">{activeTool} settings</div>
-        <RangeField label="Size" value={brushSize} min={2} max={200} onChange={setBrushSize} />
+        <div className="panel-section-title">{TOOL_TITLES[activeTool] || activeTool} settings</div>
+        <RangeField label="Size" value={brushSize} min={2} max={500} onChange={setBrushSize} />
         {activeTool === 'brush' && (
           <>
             <Field label="Color">
@@ -66,10 +81,21 @@ export default function PropertiesPanel() {
             <RangeField label="Hardness" value={brushHardness} min={0} max={1} step={0.05} onChange={setBrushHardness} format={(v) => `${Math.round(v * 100)}%`} />
           </>
         )}
-        {(activeTool === 'burn' || activeTool === 'dodge') && (
+        {(activeTool === 'burn' || activeTool === 'dodge' || activeTool === 'smudge') && (
           <RangeField label="Strength" value={brushStrength} min={0.05} max={1} step={0.05} onChange={setBrushStrength} format={(v) => `${Math.round(v * 100)}%`} />
         )}
-        <p className="empty-hint">Paint on an image layer. Pick an image first, or start brushing on empty canvas to create one.</p>
+        {(activeTool === 'clone' || activeTool === 'heal') && (
+          <>
+            <RangeField label="Hardness" value={brushHardness} min={0} max={1} step={0.05} onChange={setBrushHardness} format={(v) => `${Math.round(v * 100)}%`} />
+            <Field label="Aligned">
+              <input type="checkbox" checked={cloneAligned} onChange={(e) => setCloneAligned(e.target.checked)}
+                title="On: the source follows your strokes at a fixed offset. Off: every stroke restarts from the source point." />
+            </Field>
+          </>
+        )}
+        <p className="empty-hint">
+          {TOOL_HINTS[activeTool] || 'Paint on an image layer. Pick an image first, or start brushing on empty canvas to create one.'}
+        </p>
       </div>
     );
   }
@@ -151,6 +177,11 @@ export default function PropertiesPanel() {
       )}
       <RangeField label="Opacity" value={single ? single.opacity : 1} min={0} max={1} step={0.05}
         onChange={(v) => patch({ opacity: v })} format={(v) => `${Math.round(v * 100)}%`} />
+      <Field label="Blend">
+        <select value={(single || selectedObjects[0]).blendMode || 'normal'} onChange={(e) => patch({ blendMode: e.target.value })}>
+          {BLEND_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </Field>
 
       {single && single.type === 'text' && (
         <>
@@ -203,7 +234,7 @@ export default function PropertiesPanel() {
             onClick={() => window.__vectorStudio?.runRemoveBackground()}>
             <Wand2 /> Remove background (auto)
           </button>
-          <ImageAdjustPanel image={single} />
+          <ImageAdjustPanel key={single.id} image={single} />
         </>
       )}
 

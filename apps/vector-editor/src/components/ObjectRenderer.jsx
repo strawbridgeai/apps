@@ -7,6 +7,7 @@ export default function ObjectRenderer({ obj, editingTextId }) {
   const { x, y, width, height, rotation } = obj;
   const transform = `translate(${x} ${y}) rotate(${rotation} ${width / 2} ${height / 2})`;
   const commonStyle = { opacity: obj.opacity };
+  if (obj.blendMode && obj.blendMode !== 'normal') commonStyle.mixBlendMode = obj.blendMode;
 
   let inner = null;
   switch (obj.type) {

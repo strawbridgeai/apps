@@ -296,7 +296,7 @@ body {
   margin-bottom: 10px;
 }
 .field-row label {
-  width: 64px;
+  width: 76px;
   flex: none;
   font-size: 0.72rem;
   color: var(--text-dim);
@@ -356,7 +356,7 @@ body {
   white-space: nowrap;
 }
 .field-row .field-val {
-  width: 34px;
+  width: 38px;
   flex: none;
   font-size: 0.72rem;
   color: var(--text-dim);
@@ -686,3 +686,70 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(30,50,25,0.16); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(30,50,25,0.26); }
+
+/* ---- photo editing: clone source, histogram, RAW badge, filter grid ---- */
+.clone-source-marker {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--accent-2), var(--accent-2)) center / 2px 100% no-repeat,
+    linear-gradient(var(--accent-2), var(--accent-2)) center / 100% 2px no-repeat;
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+
+.histogram {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-solid-2);
+  margin-bottom: 8px;
+}
+
+.raw-badge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--accent-2-rgb), 0.3);
+  background: rgba(var(--accent-2-rgb), 0.08);
+  font-size: 0.72rem;
+  color: var(--text-dim);
+}
+.raw-badge strong {
+  color: var(--accent-2-dim);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.raw-badge .raw-status { width: 100%; color: var(--text-faint); }
+
+.panel-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.panel-btn-row .btn-sm { flex: 1; justify-content: center; }
+
+.btn-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.btn-grid-3 .btn-sm { justify-content: center; padding-left: 4px; padding-right: 4px; }
+
+.subsection-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin: 10px 0 4px;
+}
