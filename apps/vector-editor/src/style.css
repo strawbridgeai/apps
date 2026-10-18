@@ -152,6 +152,45 @@ body {
   flex: none;
 }
 
+/* Hover label for rail tools. Portaled to <body> and position: fixed,
+   because the rail scrolls (which would clip it) and its backdrop-filter
+   would otherwise become the fixed-position containing block. */
+.tool-tip {
+  position: fixed;
+  z-index: 1000;
+  transform: translateY(-50%);
+  pointer-events: none;
+  padding: 5px 9px;
+  border-radius: 7px;
+  background: #1b2a18;
+  color: #f4f6ee;
+  font-size: 0.74rem;
+  font-weight: 500;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  animation: tool-tip-in 0.12s ease-out;
+}
+.tool-tip::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: inherit;
+  transform: translateY(-50%) rotate(45deg);
+}
+.tool-tip .tool-tip-key {
+  margin-left: 8px;
+  padding: 0 5px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font: 600 0.66rem/1.5 inherit;
+  color: #d6dfcb;
+}
+.tool-tip .tool-tip-hint { display: block; color: #b9c4ad; font-size: 0.68rem; font-weight: 400; margin-top: 1px; }
+@keyframes tool-tip-in { from { opacity: 0; transform: translate(-3px, -50%); } }
+
 /* ---------- canvas area ---------- */
 
 .canvas-area {
@@ -285,15 +324,23 @@ body {
 
 .panel-scroll {
   flex: 1;
+  min-width: 0;
+  /* Vertical scrolling only: every row is built to shrink to the panel, and
+     the gutter is reserved so a desktop (non-overlay) scrollbar appearing
+     doesn't steal width and push sliders past the edge. */
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 12px;
+  scrollbar-gutter: stable;
+  padding: 12px 10px 12px 12px;
 }
+.panel-scroll > * { max-width: 100%; }
 
 .field-row {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  min-width: 0;
 }
 .field-row label {
   width: 76px;
@@ -343,7 +390,7 @@ body {
   border-radius: 6px;
   background: none;
 }
-.field-row input[type="range"] { flex: 1; }
+.field-row input[type="range"] { flex: 1; width: 100%; min-width: 0; }
 
 /* Background field: show the full word instead of the ellipsis truncation
    every other (short) label relies on, and push the swatch to the row's
@@ -374,10 +421,14 @@ body {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
   margin-bottom: 10px;
 }
+
+/* Short X/Y/W/H labels in two-column rows don't need the full label column;
+   giving that width back keeps 4-digit values readable. */
+.grid-2 .field-row label { width: auto; min-width: 12px; }
 
 .empty-hint {
   color: var(--text-dim);
@@ -688,6 +739,31 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: rgba(30,50,25,0.26); }
 
 /* ---- photo editing: clone source, histogram, RAW badge, filter grid ---- */
+.brush-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  border: 1.5px solid #1b2a18;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+  background: rgba(27, 42, 24, 0.08);
+  pointer-events: none;
+  will-change: transform;
+}
+/* Spot heal: the painted area is shown as a translucent wash until release. */
+.spot-stroke {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.spot-stroke path {
+  fill: none;
+  stroke: rgba(196, 62, 48, 0.42);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .clone-source-marker {
   position: absolute;
   width: 18px;
@@ -743,7 +819,15 @@ body {
   gap: 6px;
   margin-bottom: 8px;
 }
-.btn-grid-3 .btn-sm { justify-content: center; padding-left: 4px; padding-right: 4px; }
+.btn-grid-3 .btn-sm {
+  justify-content: center;
+  padding-left: 4px;
+  padding-right: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 .subsection-label {
   font-size: 0.68rem;

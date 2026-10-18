@@ -434,3 +434,194 @@ export function previewDataUrl(canvas, maxEdge = 1600) {
   out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
   return out.toDataURL('image/png');
 }
+
+// Spot healing (Photoshop's spot healing brush, "proximity match"): the user
+// paints over a blemish with no source point. On release we look around the
+// stroke for the patch whose surroundings best match the stroke's
+// surroundings (texture-wise — brightness differences are corrected next),
+// copy it in, then add a smooth correction field interpolated from the
+// color difference along the stroke's border, so the patch's texture lands
+// with the target's local tones (a cheap stand-in for Poisson blending).
+// Returns the modified rect [x0, y0, x1, y1] in image pixels, or null.
+export function spotHeal(ctx, points, size) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const r = Math.max(2, size / 2);
+  const xs = points.map((p) => p[0]);
+  const ys = points.map((p) => p[1]);
+  const pad = Math.max(4, Math.round(r * 0.6));
+  const mx0 = Math.max(0, Math.floor(Math.min(...xs) - r));
+  const my0 = Math.max(0, Math.floor(Math.min(...ys) - r));
+  const mx1 = Math.min(W, Math.ceil(Math.max(...xs) + r));
+  const my1 = Math.min(H, Math.ceil(Math.max(...ys) + r));
+  if (mx1 - mx0 < 2 || my1 - my0 < 2) return null;
+  // Working rect: the stroke's bounds plus a border ring of known pixels.
+  const rx = Math.max(0, mx0 - pad);
+  const ry = Math.max(0, my0 - pad);
+  const rw = Math.min(W, mx1 + pad) - rx;
+  const rh = Math.min(H, my1 + pad) - ry;
+  const n = rw * rh;
+
+  // Stroke mask: hard (for deciding known/unknown) and feathered (for blending).
+  const drawMask = (feather) => {
+    const c = document.createElement('canvas');
+    c.width = rw;
+    c.height = rh;
+    const m = c.getContext('2d', { willReadFrequently: true });
+    if (feather) m.filter = `blur(${feather}px)`;
+    m.strokeStyle = m.fillStyle = '#fff';
+    m.lineWidth = r * 2;
+    m.lineCap = m.lineJoin = 'round';
+    m.beginPath();
+    if (points.length === 1) {
+      m.arc(points[0][0] - rx, points[0][1] - ry, r, 0, Math.PI * 2);
+      m.fill();
+    } else {
+      points.forEach(([px, py], i) => (i ? m.lineTo(px - rx, py - ry) : m.moveTo(px - rx, py - ry)));
+      m.stroke();
+    }
+    const a = m.getImageData(0, 0, rw, rh).data;
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) out[i] = a[i * 4 + 3] / 255;
+    return out;
+  };
+  const hard = drawMask(0);
+  const soft = drawMask(Math.max(1, r * 0.18));
+  const known = new Uint8Array(n);
+  let knownCount = 0;
+  for (let i = 0; i < n; i++) if (hard[i] < 0.004) { known[i] = 1; knownCount++; }
+  if (!knownCount) return null;
+
+  const T = ctx.getImageData(rx, ry, rw, rh).data;
+
+  // ---- pick the source offset ----
+  const bw = mx1 - mx0;
+  const bh = my1 - my0;
+  const stride = Math.max(1, Math.round(Math.sqrt(knownCount / 3000)));
+  let best = null;
+  for (let k = 0; k < 16; k++) {
+    const ang = (k / 16) * Math.PI * 2;
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    // Shortest shift along this direction that moves the source clear of the stroke.
+    const t0 = Math.min(Math.abs(c) > 1e-3 ? (bw + pad) / Math.abs(c) : Infinity, Math.abs(s) > 1e-3 ? (bh + pad) / Math.abs(s) : Infinity);
+    for (const mult of [1, 1.5, 2.2]) {
+      const dx = Math.round(c * t0 * mult);
+      const dy = Math.round(s * t0 * mult);
+      if (rx + dx < 0 || ry + dy < 0 || rx + dx + rw > W || ry + dy + rh > H) continue;
+      const S = ctx.getImageData(rx + dx, ry + dy, rw, rh).data;
+      let sum = [0, 0, 0];
+      let sq = 0;
+      let cnt = 0;
+      for (let y = 0; y < rh; y += stride) {
+        for (let x = 0; x < rw; x += stride) {
+          const i = y * rw + x;
+          if (!known[i]) continue;
+          const j = i * 4;
+          for (let ch = 0; ch < 3; ch++) {
+            const d = T[j + ch] - S[j + ch];
+            sum[ch] += d;
+            sq += d * d;
+          }
+          cnt++;
+        }
+      }
+      if (!cnt) continue;
+      // Variance of the difference: texture mismatch, ignoring a flat tone shift.
+      const score = (sq - (sum[0] ** 2 + sum[1] ** 2 + sum[2] ** 2) / cnt) / cnt * (1 + 0.08 * (mult - 1));
+      if (!best || score < best.score) best = { score, S };
+    }
+  }
+  // Nothing fits (stroke nearly as big as the image): fill by smooth
+  // interpolation from the border alone.
+  const S = best ? best.S : new Uint8ClampedArray(n * 4);
+
+  // ---- correction field on a coarse grid, solved by relaxation ----
+  const g = Math.max(1, Math.ceil(Math.max(rw, rh) / 96));
+  const gw = Math.ceil(rw / g);
+  const gh = Math.ceil(rh / g);
+  const gn = gw * gh;
+  const field = [new Float32Array(gn), new Float32Array(gn), new Float32Array(gn), new Float32Array(gn)];
+  const fixed = new Uint8Array(gn);
+  const cellKnown = new Float32Array(gn);
+  const cellAll = new Float32Array(gn);
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const ci = ((y / g) | 0) * gw + ((x / g) | 0);
+      cellAll[ci]++;
+      const i = y * rw + x;
+      if (!known[i]) continue;
+      cellKnown[ci]++;
+      const j = i * 4;
+      for (let ch = 0; ch < 4; ch++) field[ch][ci] += T[j + ch] - S[j + ch];
+    }
+  }
+  const mean = [0, 0, 0, 0];
+  let fixedCount = 0;
+  for (let ci = 0; ci < gn; ci++) {
+    if (cellKnown[ci] >= cellAll[ci] * 0.5 && cellKnown[ci] > 0) {
+      fixed[ci] = 1;
+      fixedCount++;
+      for (let ch = 0; ch < 4; ch++) {
+        field[ch][ci] /= cellKnown[ci];
+        mean[ch] += field[ch][ci];
+      }
+    }
+  }
+  if (!fixedCount) return null;
+  for (let ch = 0; ch < 4; ch++) mean[ch] /= fixedCount;
+  for (let ci = 0; ci < gn; ci++) if (!fixed[ci]) for (let ch = 0; ch < 4; ch++) field[ch][ci] = mean[ch];
+  const iters = Math.min(600, (gw + gh) * 3);
+  for (let it = 0; it < iters; it++) {
+    for (let y = 0; y < gh; y++) {
+      for (let x = 0; x < gw; x++) {
+        const ci = y * gw + x;
+        if (fixed[ci]) continue;
+        for (let ch = 0; ch < 4; ch++) {
+          const f = field[ch];
+          let acc = 0;
+          let c = 0;
+          if (x > 0) { acc += f[ci - 1]; c++; }
+          if (x < gw - 1) { acc += f[ci + 1]; c++; }
+          if (y > 0) { acc += f[ci - gw]; c++; }
+          if (y < gh - 1) { acc += f[ci + gw]; c++; }
+          f[ci] = acc / c;
+        }
+      }
+    }
+  }
+
+  // ---- composite: source texture + interpolated correction, through the soft mask ----
+  const out = ctx.createImageData(rw, rh);
+  const O = out.data;
+  const sampleField = (f, x, y) => {
+    const fx = Math.min(gw - 1, Math.max(0, (x + 0.5) / g - 0.5));
+    const fy = Math.min(gh - 1, Math.max(0, (y + 0.5) / g - 0.5));
+    const x0 = fx | 0;
+    const y0 = fy | 0;
+    const x1 = Math.min(gw - 1, x0 + 1);
+    const y1 = Math.min(gh - 1, y0 + 1);
+    const tx = fx - x0;
+    const ty = fy - y0;
+    const top = f[y0 * gw + x0] * (1 - tx) + f[y0 * gw + x1] * tx;
+    const bot = f[y1 * gw + x0] * (1 - tx) + f[y1 * gw + x1] * tx;
+    return top * (1 - ty) + bot * ty;
+  };
+  for (let y = 0; y < rh; y++) {
+    for (let x = 0; x < rw; x++) {
+      const i = y * rw + x;
+      const j = i * 4;
+      const a = soft[i];
+      if (a <= 0.002) {
+        O[j] = T[j]; O[j + 1] = T[j + 1]; O[j + 2] = T[j + 2]; O[j + 3] = T[j + 3];
+        continue;
+      }
+      for (let ch = 0; ch < 4; ch++) {
+        const healed = S[j + ch] + sampleField(field[ch], x, y);
+        O[j + ch] = T[j + ch] + (healed - T[j + ch]) * a;
+      }
+    }
+  }
+  ctx.putImageData(out, rx, ry);
+  return [rx, ry, rx + rw, ry + rh];
+}

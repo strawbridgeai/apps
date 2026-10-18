@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDoc } from '../state/DocumentContext.jsx';
 import ObjectRenderer from './ObjectRenderer.jsx';
+import { TOOL_SHORTCUTS } from './ToolRail.jsx';
 import {
   getCorners,
   axisAlignedBounds,
@@ -25,10 +26,10 @@ import {
   cropCanvas,
   cloneDab,
   smudgeDab,
-  previewDataUrl,
+  spotHeal,
 } from '../lib/rasterTools.js';
 
-const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'clone', 'heal', 'smudge'];
+const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'spot', 'clone', 'heal', 'smudge'];
 const SOURCE_TOOLS = ['clone', 'heal'];
 
 export default function CanvasStage() {
@@ -73,7 +74,17 @@ export default function CanvasStage() {
   const [editingDraft, setEditingDraft] = useState('');
   const [cropRect, setCropRect] = useState(null);
   const [isDropTarget, setDropTarget] = useState(false);
-  const [brushCursor, setBrushCursor] = useState(null);
+  // Brush cursor, clone-source marker and spot-heal stroke are moved by
+  // writing to the DOM directly: re-rendering the whole stage on every
+  // pointer move is part of what made strokes trail the mouse.
+  const brushCursorRef = useRef(null);
+  const cloneMarkerRef = useRef(null);
+  const spotPathRef = useRef(null);
+  // The layer currently being painted shows its working canvas live
+  // ({ id, canvas, tool }); strokeSeqRef tells a finishing stroke whether a
+  // newer one has taken over the live view.
+  const [liveStroke, setLiveStroke] = useState(null);
+  const strokeSeqRef = useRef(0);
   const spaceHeldRef = useRef(false);
   // Clone/heal source: { id, x, y } in the image's pixel space, plus the
   // source→destination offset that "aligned" mode keeps between strokes.
@@ -130,7 +141,12 @@ export default function CanvasStage() {
       setCropRect(null);
       setActiveTool('select');
     }
-    if (e.key === 'Enter' && pendingPath && pendingPath.length > 1) {
+    const shortcut = !mod && !e.altKey && TOOL_SHORTCUTS[e.key.toLowerCase()];
+    if (shortcut && !interactionRef.current) {
+      setActiveTool(shortcut);
+      return;
+    }
+    if (e.key === 'Enter' && pendingPath && pendingPath.points.length > 1) {
       finalizePath(false);
     }
     if (e.key === 'Enter' && activeTool === 'crop' && cropRect) {
@@ -276,7 +292,10 @@ export default function CanvasStage() {
       } else if (!selectedIds.includes(target.id)) {
         selectObjects([target.id]);
       }
-      const { ctx } = await getRasterCanvas(target);
+      // Keep receiving moves (and the release) even if the pointer leaves the stage.
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      const entry = await getRasterCanvas(target);
+      const { ctx } = entry;
       const lx = ((x - target.x) / target.width) * target.pixelWidth;
       const ly = ((y - target.y) / target.height) * target.pixelHeight;
 
@@ -295,7 +314,14 @@ export default function CanvasStage() {
       }
 
       const pre = getSnapshot();
-      const stroke = { tool: activeTool };
+      const display = getDisplayCanvas(entry, target);
+      const stroke = { tool: activeTool, display, dirty: null, raf: 0 };
+      if (activeTool === 'spot') {
+        stroke.points = [];
+        stroke.kx = target.width / target.pixelWidth;
+        stroke.ky = target.height / target.pixelHeight;
+        stroke.d = '';
+      }
       if (SOURCE_TOOLS.includes(activeTool)) {
         if (!cloneAligned || !cloneOffsetRef.current) {
           cloneOffsetRef.current = [cloneSource.x - lx, cloneSource.y - ly];
@@ -309,23 +335,93 @@ export default function CanvasStage() {
         snap.getContext('2d').drawImage(ctx.canvas, 0, 0);
         stroke.source = snap;
       }
-      paintAt(ctx, stroke, lx, ly);
+      const seq = ++strokeSeqRef.current;
       interactionRef.current = {
         kind: 'paint',
         id: target.id,
         ctx,
         pre,
         stroke,
+        seq,
         last: [lx, ly],
-        lastFlush: 0,
       };
-      flushPaint(target.id, ctx);
+      paintAt(ctx, stroke, lx, ly);
+      setLiveStroke({ id: target.id, canvas: display, tool: activeTool });
       return;
     }
   };
 
+  // Screen-resolution copy of the layer that is shown while painting. Dabs
+  // go into the full-resolution canvas; only the rectangle they touched is
+  // copied across, once per animation frame. Kept between strokes and
+  // rebuilt only when the layer's pixels were replaced some other way.
+  function getDisplayCanvas(entry, obj) {
+    const dpr = window.devicePixelRatio || 1;
+    const longEdge = Math.max(obj.pixelWidth, obj.pixelHeight);
+    const scale = Math.min(1, (obj.width * zoom * dpr) / obj.pixelWidth, 4096 / longEdge);
+    const w = Math.max(1, Math.round(obj.pixelWidth * scale));
+    const h = Math.max(1, Math.round(obj.pixelHeight * scale));
+    let d = entry.display;
+    if (!d || d.width !== w || d.height !== h || entry.displaySrc !== entry.src) {
+      d = document.createElement('canvas');
+      d.width = w;
+      d.height = h;
+      d.getContext('2d').drawImage(entry.canvas, 0, 0, w, h);
+      entry.display = d;
+      entry.displaySrc = entry.src;
+    }
+    return d;
+  }
+
+  function markDirty(stroke, x, y, r) {
+    const d = stroke.dirty;
+    if (!d) stroke.dirty = [x - r, y - r, x + r, y + r];
+    else {
+      d[0] = Math.min(d[0], x - r);
+      d[1] = Math.min(d[1], y - r);
+      d[2] = Math.max(d[2], x + r);
+      d[3] = Math.max(d[3], y + r);
+    }
+    if (!stroke.raf) {
+      stroke.raf = requestAnimationFrame(() => {
+        stroke.raf = 0;
+        blitDirty(stroke);
+      });
+    }
+  }
+
+  function blitDirty(stroke) {
+    const d = stroke.dirty;
+    if (!d) return;
+    stroke.dirty = null;
+    const disp = stroke.display;
+    const full = stroke.canvas;
+    if (!full) return;
+    const sx = disp.width / full.width;
+    const sy = disp.height / full.height;
+    const x0 = Math.max(0, Math.floor(d[0] * sx));
+    const y0 = Math.max(0, Math.floor(d[1] * sy));
+    const x1 = Math.min(disp.width, Math.ceil(d[2] * sx));
+    const y1 = Math.min(disp.height, Math.ceil(d[3] * sy));
+    if (x1 <= x0 || y1 <= y0) return;
+    const dctx = disp.getContext('2d');
+    dctx.clearRect(x0, y0, x1 - x0, y1 - y0);
+    dctx.drawImage(full, x0 / sx, y0 / sy, (x1 - x0) / sx, (y1 - y0) / sy, x0, y0, x1 - x0, y1 - y0);
+  }
+
   function paintAt(ctx, stroke, lx, ly) {
     const { tool } = stroke;
+    if (tool === 'spot') {
+      // Spot heal only records the stroke; the fix is computed on release.
+      stroke.points.push([lx, ly]);
+      const px = lx * stroke.kx;
+      const py = ly * stroke.ky;
+      stroke.d += stroke.d ? ` L${px} ${py}` : `M${px} ${py} L${px} ${py}`;
+      spotPathRef.current?.setAttribute('d', stroke.d);
+      return;
+    }
+    stroke.canvas = ctx.canvas;
+    markDirty(stroke, lx, ly, brushSize / 2 + 2);
     if (tool === 'clone' || tool === 'heal') {
       const [ox, oy] = stroke.offset;
       cloneDab(ctx, stroke.source, lx, ly, lx + ox, ly + oy, { size: brushSize, hardness: brushHardness, heal: tool === 'heal' });
@@ -338,23 +434,43 @@ export default function CanvasStage() {
     if (tool === 'dodge') dodgeDab(ctx, lx, ly, { size: brushSize, strength: brushStrength });
   }
 
-  // The cache canvas *is* the stroke's result, so each flush re-points the
-  // cache at the src it just wrote — otherwise the next stroke would
-  // re-decode (and, mid-stroke, a low-res preview would replace it).
-  async function flushPaint(id, ctx, final = false) {
-    const src = final ? await canvasToUrl(ctx.canvas) : previewDataUrl(ctx.canvas);
+  // Encodes the finished stroke once, at full resolution. The cache canvas
+  // *is* the stroke's result, so the cache is re-pointed at the src just
+  // written — otherwise the next stroke would re-decode it. The live canvas
+  // stays on screen until the new src has decoded, so nothing flickers.
+  async function finishStroke({ id, ctx, pre, seq, stroke }) {
+    const src = await canvasToUrl(ctx.canvas);
     const entry = rasterCacheRef.current.get(id);
-    if (entry && entry.ctx === ctx) entry.src = src;
+    if (entry && entry.ctx === ctx) {
+      entry.src = src;
+      if (entry.display === stroke.display) entry.displaySrc = src;
+    }
     patchObjectsLive([id], () => ({ src }));
+    pushUndoPoint(pre);
+    try {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+    } catch {
+      /* fall through: show the layer anyway */
+    }
+    requestAnimationFrame(() => {
+      if (strokeSeqRef.current === seq) setLiveStroke(null);
+    });
+  }
+
+  function moveBrushCursor(e) {
+    const el = brushCursorRef.current;
+    if (!el) return;
+    const rect = stageRef.current.getBoundingClientRect();
+    el.style.display = 'block';
+    el.style.transform = `translate(${e.clientX - rect.left}px, ${e.clientY - rect.top}px) translate(-50%, -50%)`;
   }
 
   const handleStagePointerMove = (e) => {
     const interaction = interactionRef.current;
     if (!interaction) {
-      if (PAINT_TOOLS.includes(activeTool)) {
-        const rect = stageRef.current.getBoundingClientRect();
-        setBrushCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top, size: brushSize * zoom });
-      }
+      if (PAINT_TOOLS.includes(activeTool)) moveBrushCursor(e);
       return;
     }
     const [x, y] = toDoc(e);
@@ -434,24 +550,33 @@ export default function CanvasStage() {
     if (interaction.kind === 'paint') {
       const target = objects.find((o) => o.id === interaction.id);
       if (!target) return;
-      const lx = ((x - target.x) / target.width) * target.pixelWidth;
-      const ly = ((y - target.y) / target.height) * target.pixelHeight;
-      const [lastX, lastY] = interaction.last;
-      const dist = Math.hypot(lx - lastX, ly - lastY);
-      const spacing = Math.max(2, brushSize / 5);
-      const steps = Math.max(1, Math.floor(dist / spacing));
-      for (let i = 1; i <= steps; i++) {
-        const t = i / steps;
-        paintAt(interaction.ctx, interaction.stroke, lastX + (lx - lastX) * t, lastY + (ly - lastY) * t);
+      // Browsers batch high-rate mouse/pen input into one pointermove per
+      // frame; the coalesced list has every sample, so fast strokes keep
+      // their real shape instead of turning into straight segments.
+      const samples = e.nativeEvent.getCoalescedEvents?.() || [];
+      const spacing = Math.max(1, brushSize / 6);
+      for (const ev of samples.length ? samples : [e]) {
+        const [sx, sy] = toDoc(ev);
+        const lx = ((sx - target.x) / target.width) * target.pixelWidth;
+        const ly = ((sy - target.y) / target.height) * target.pixelHeight;
+        const [lastX, lastY] = interaction.last;
+        const dist = Math.hypot(lx - lastX, ly - lastY);
+        if (dist < spacing) continue;
+        const steps = Math.floor(dist / spacing);
+        for (let i = 1; i <= steps; i++) {
+          const t = i / steps;
+          paintAt(interaction.ctx, interaction.stroke, lastX + (lx - lastX) * t, lastY + (ly - lastY) * t);
+        }
+        interaction.last = [lx, ly];
       }
-      interaction.last = [lx, ly];
-      const now = performance.now();
-      if (now - interaction.lastFlush > 60) {
-        flushPaint(interaction.id, interaction.ctx);
-        interaction.lastFlush = now;
+      moveBrushCursor(e);
+      const marker = cloneMarkerRef.current;
+      if (marker && interaction.stroke.offset) {
+        // While painting, the source crosshair follows the brush.
+        const [lx, ly] = interaction.last;
+        marker.style.left = `${(target.x + ((lx + interaction.stroke.offset[0]) / target.pixelWidth) * target.width) * zoom}px`;
+        marker.style.top = `${(target.y + ((ly + interaction.stroke.offset[1]) / target.pixelHeight) * target.height) * zoom}px`;
       }
-      const rect = stageRef.current.getBoundingClientRect();
-      setBrushCursor({ x: e.clientX - rect.left, y: e.clientY - rect.top, size: brushSize * zoom });
       return;
     }
 
@@ -489,8 +614,28 @@ export default function CanvasStage() {
       pushUndoPoint(interaction.pre);
     }
     if (interaction.kind === 'paint') {
-      const { id, ctx, pre } = interaction;
-      flushPaint(id, ctx, true).then(() => pushUndoPoint(pre));
+      const { stroke, ctx } = interaction;
+      if (stroke.tool === 'spot') {
+        spotPathRef.current?.setAttribute('d', '');
+        const rect = spotHeal(ctx, stroke.points, brushSize);
+        if (!rect) {
+          interactionRef.current = null;
+          setLiveStroke(null);
+          return;
+        }
+        stroke.canvas = ctx.canvas;
+        stroke.dirty = rect;
+      }
+      cancelAnimationFrame(stroke.raf);
+      stroke.raf = 0;
+      blitDirty(stroke);
+      finishStroke(interaction);
+      const marker = cloneMarkerRef.current;
+      const img = cloneSource && objects.find((o) => o.id === cloneSource.id);
+      if (marker && img) {
+        marker.style.left = `${(img.x + (cloneSource.x / img.pixelWidth) * img.width) * zoom}px`;
+        marker.style.top = `${(img.y + (cloneSource.y / img.pixelHeight) * img.height) * zoom}px`;
+      }
     }
     interactionRef.current = null;
   };
@@ -638,7 +783,9 @@ export default function CanvasStage() {
         onPointerDown={handleStagePointerDown}
         onPointerMove={handleStagePointerMove}
         onPointerUp={handleStagePointerUp}
-        onPointerLeave={() => setBrushCursor(null)}
+        onPointerLeave={() => {
+          if (brushCursorRef.current && !interactionRef.current) brushCursorRef.current.style.display = 'none';
+        }}
       >
         <svg
           ref={docSvgRef}
@@ -649,7 +796,12 @@ export default function CanvasStage() {
         >
           <rect width={doc.width} height={doc.height} fill={doc.background} />
           {objects.map((obj) => (
-            <ObjectRenderer key={obj.id} obj={obj} editingTextId={editingTextId} />
+            <ObjectRenderer
+              key={obj.id}
+              obj={obj}
+              editingTextId={editingTextId}
+              liveCanvas={liveStroke?.id === obj.id ? liveStroke.canvas : null}
+            />
           ))}
           {pendingPath && (
             <polyline
@@ -685,35 +837,33 @@ export default function CanvasStage() {
           {SOURCE_TOOLS.includes(activeTool) && cloneSource && (() => {
             const img = objects.find((o) => o.id === cloneSource.id);
             if (!img) return null;
-            let px = cloneSource.x;
-            let py = cloneSource.y;
-            const live = interactionRef.current?.kind === 'paint' ? interactionRef.current : null;
-            if (live && brushCursor) {
-              // While painting, the source crosshair follows the brush.
-              const [lx, ly] = live.last;
-              px = lx + live.stroke.offset[0];
-              py = ly + live.stroke.offset[1];
-            }
-            const sx = (img.x + (px / img.pixelWidth) * img.width) * zoom;
-            const sy = (img.y + (py / img.pixelHeight) * img.height) * zoom;
+            const sx = (img.x + (cloneSource.x / img.pixelWidth) * img.width) * zoom;
+            const sy = (img.y + (cloneSource.y / img.pixelHeight) * img.height) * zoom;
+            return <div ref={cloneMarkerRef} className="clone-source-marker" style={{ left: sx, top: sy }} />;
+          })()}
+
+          {liveStroke?.tool === 'spot' && (() => {
+            const img = objects.find((o) => o.id === liveStroke.id);
+            const stroke = interactionRef.current?.stroke;
+            if (!img) return null;
             return (
-              <div className="clone-source-marker" style={{ left: sx, top: sy }} />
+              <svg className="spot-stroke" width={svgW} height={svgH} viewBox={`0 0 ${doc.width} ${doc.height}`}>
+                <g transform={`translate(${img.x} ${img.y}) rotate(${img.rotation} ${img.width / 2} ${img.height / 2})`}>
+                  <path
+                    ref={spotPathRef}
+                    d={stroke?.tool === 'spot' ? stroke.d : ''}
+                    strokeWidth={brushSize * (img.width / img.pixelWidth)}
+                  />
+                </g>
+              </svg>
             );
           })()}
 
-          {brushCursor && PAINT_TOOLS.includes(activeTool) && (
+          {PAINT_TOOLS.includes(activeTool) && (
             <div
-              style={{
-                position: 'absolute',
-                left: brushCursor.x - brushCursor.size / 2,
-                top: brushCursor.y - brushCursor.size / 2,
-                width: brushCursor.size,
-                height: brushCursor.size,
-                borderRadius: '50%',
-                border: '1.5px solid #1b2a18',
-                background: 'rgba(27,42,24,0.08)',
-                pointerEvents: 'none',
-              }}
+              ref={brushCursorRef}
+              className="brush-cursor"
+              style={{ display: 'none', width: brushSize * zoom, height: brushSize * zoom }}
             />
           )}
         </div>

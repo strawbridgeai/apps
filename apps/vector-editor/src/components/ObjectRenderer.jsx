@@ -2,7 +2,25 @@
 // the same translate+rotate <g> so move/resize/rotate logic in CanvasStage
 // stays identical regardless of shape type — only the inner element (and
 // its local-coordinate geometry) differs per type.
-export default function ObjectRenderer({ obj, editingTextId }) {
+import { useLayoutEffect, useRef } from 'react';
+
+// While a brush stroke is in progress the layer shows the stroke's working
+// canvas directly instead of its encoded `src`: re-encoding a photo on
+// every mouse move is what made painting trail the cursor.
+function LiveCanvas({ canvas }) {
+  const hostRef = useRef(null);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    canvas.style.cssText = 'display:block;width:100%;height:100%';
+    host.appendChild(canvas);
+    return () => {
+      if (canvas.parentNode === host) host.removeChild(canvas);
+    };
+  }, [canvas]);
+  return <div ref={hostRef} xmlns="http://www.w3.org/1999/xhtml" style={{ width: '100%', height: '100%' }} />;
+}
+
+export default function ObjectRenderer({ obj, editingTextId, liveCanvas }) {
   if (!obj.visible) return null;
   const { x, y, width, height, rotation } = obj;
   const transform = `translate(${x} ${y}) rotate(${rotation} ${width / 2} ${height / 2})`;
@@ -97,7 +115,11 @@ export default function ObjectRenderer({ obj, editingTextId }) {
       );
       break;
     case 'image':
-      inner = (
+      inner = liveCanvas ? (
+        <foreignObject width={width} height={height}>
+          <LiveCanvas canvas={liveCanvas} />
+        </foreignObject>
+      ) : (
         <image
           href={obj.src}
           width={width}

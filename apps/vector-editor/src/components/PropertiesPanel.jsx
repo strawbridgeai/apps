@@ -20,9 +20,10 @@ import { useDoc } from '../state/DocumentContext.jsx';
 import { Field, RangeField } from './ui/field.jsx';
 import ImageAdjustPanel from './ImageAdjustPanel.jsx';
 
-const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'clone', 'heal', 'smudge'];
-const TOOL_TITLES = { clone: 'Clone stamp', heal: 'Healing brush', smudge: 'Smudge' };
+const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'spot', 'clone', 'heal', 'smudge'];
+const TOOL_TITLES = { spot: 'Spot heal', clone: 'Clone stamp', heal: 'Healing brush', smudge: 'Smudge' };
 const TOOL_HINTS = {
+  spot: 'Click or paint over a spot, blemish, dust speck or small object, a little larger than it. On release it is replaced with matching texture from nearby. No source point needed.',
   clone: 'Alt-click (Option-click on Mac) the image to pick a source point, then paint to copy it over the target area.',
   heal: 'Like the clone stamp, but blends the copied texture into the colors around where you paint — best for spots, blemishes and dust.',
   smudge: 'Drag to push and smear pixels, like a finger through wet paint.',
