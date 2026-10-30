@@ -1,9 +1,10 @@
-import { createContext, useContext, useMemo, useRef, useState, useCallback } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { uid, clamp } from '../lib/utils.js';
 import { unionBounds, axisAlignedBounds } from '../lib/shapes.js';
 import { isImageFile, isProjectFile, imageFileToObject, parseProjectFile, canvasToImageObject } from '../lib/importers.js';
 import { isRawFile, openRawFile } from '../lib/rawImport.js';
-import { canvasToUrl, srcByteSize, releaseUnused } from '../lib/pixelStore.js';
+import { canvasToUrl, srcByteSize, releaseUnused, registerLiveSrcs } from '../lib/pixelStore.js';
+import { useWorkspace } from './Workspace.jsx';
 
 const DocumentCtx = createContext(null);
 
@@ -32,7 +33,11 @@ function collectSrcs(set, snap) {
   snap.objects.forEach((o) => o.src && set.add(o.src));
 }
 
-export function DocumentProvider({ children }) {
+// One per workspace tab (see Workspace.jsx); `active` is false while the
+// tab is hidden, so window-level shortcuts and paste only reach the tab on
+// screen.
+export function DocumentProvider({ tab, active, children }) {
+  const workspace = useWorkspace();
   const [doc, setDoc] = useState(DEFAULT_DOC);
   const [objects, setObjects] = useState([]); // z-order: index 0 = back
   const [groups, setGroups] = useState({});
@@ -55,6 +60,7 @@ export function DocumentProvider({ children }) {
   const futureRef = useRef([]);
   const [historyTick, setHistoryTick] = useState(0);
   const docSvgRef = useRef(null);
+  const canvasAreaRef = useRef(null);
 
   // Latest objects for async work (RAW decodes finishing in the
   // background) that must not act on a stale render's closure.
@@ -73,11 +79,8 @@ export function DocumentProvider({ children }) {
     const limit = historyLimit(snap);
     while (pastRef.current.length > limit) pastRef.current.shift();
     // Free image versions that fell out of history (or were discarded
-    // redo branches) once nothing references them any more.
-    const live = new Set();
-    collectSrcs(live, { objects: objectsRef.current });
-    pastRef.current.forEach((s) => collectSrcs(live, s));
-    releaseUnused(live);
+    // redo branches) once no tab references them any more.
+    releaseUnused();
     futureRef.current = [];
     setHistoryTick((t) => t + 1);
   }, []);
@@ -317,7 +320,7 @@ export function DocumentProvider({ children }) {
   );
 
   const zoomToFit = useCallback((w, h) => {
-    const area = document.querySelector('.canvas-area');
+    const area = canvasAreaRef.current;
     if (!area) return;
     const z = Math.min((area.clientWidth - 64) / w, (area.clientHeight - 64) / h, 1);
     setZoom(Math.max(0.02, Math.floor(z * 100) / 100));
@@ -459,7 +462,78 @@ export function DocumentProvider({ children }) {
     [doc.width, doc.height, commit, zoomToFit, loadDocument, finishRawDecode, showToast]
   );
 
+  // Opening files into a tab that already has content puts each file in a
+  // tab of its own instead of layering it over this document; an empty tab
+  // (a fresh start) takes the first file itself.
+  const openFiles = useCallback(
+    async (files) => {
+      if (!files.length) return;
+      if (objectsRef.current.length) {
+        workspace.openFilesInNewTabs(files);
+        return;
+      }
+      const [first, ...rest] = files;
+      workspace.openFilesInNewTabs(rest);
+      if (rest.length) workspace.setActiveId(tab.id);
+      await importFiles([first]);
+    },
+    [workspace, tab.id, importFiles]
+  );
+
+  const createDocument = useCallback(
+    (config) => {
+      if (objectsRef.current.length) workspace.openNewTab(config);
+      else newDocument(config);
+    },
+    [workspace, newDocument]
+  );
+
+  // Adds a layer dragged in from another tab as one undoable step.
+  const receiveRef = useRef(null);
+  receiveRef.current = (obj) => {
+    addObjects([obj]);
+    setActiveTool('select');
+  };
+
+  const { registerTab, setTabTitle } = workspace;
+  useEffect(
+    () =>
+      registerTab(tab.id, {
+        getDoc: () => docRef.current,
+        getObjects: () => objectsRef.current,
+        getSvg: () => docSvgRef.current,
+        receive: (obj) => receiveRef.current(obj),
+        showToast,
+      }),
+    [registerTab, tab.id, showToast]
+  );
+
+  useEffect(
+    () =>
+      registerLiveSrcs((live) => {
+        collectSrcs(live, { objects: objectsRef.current });
+        pastRef.current.forEach((s) => collectSrcs(live, s));
+        futureRef.current.forEach((s) => collectSrcs(live, s));
+      }),
+    []
+  );
+
+  useEffect(() => setTabTitle(tab.id, doc.name), [setTabTitle, tab.id, doc.name]);
+
+  // A tab opened for specific files or a New-document config sets itself
+  // up once, on mount.
+  useEffect(() => {
+    if (tab.pendingConfig) setDoc({ ...DEFAULT_DOC, ...tab.pendingConfig });
+    if (tab.pendingFiles?.length) importFiles(tab.pendingFiles);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const value = {
+    tabId: tab.id,
+    active,
+    openFiles,
+    createDocument,
+    canvasAreaRef,
     doc,
     setDoc,
     objects,

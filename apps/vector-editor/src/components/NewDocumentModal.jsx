@@ -13,7 +13,7 @@ const PRESETS = [
 ];
 
 export default function NewDocumentModal({ onClose }) {
-  const { newDocument } = useDoc();
+  const { createDocument } = useDoc();
   const [name, setName] = useState('Untitled');
   const [width, setWidth] = useState(1080);
   const [height, setHeight] = useState(1080);
@@ -27,7 +27,7 @@ export default function NewDocumentModal({ onClose }) {
   };
 
   const create = () => {
-    newDocument({
+    createDocument({
       name: name || 'Untitled',
       width: Math.max(1, Math.round(width)),
       height: Math.max(1, Math.round(height)),

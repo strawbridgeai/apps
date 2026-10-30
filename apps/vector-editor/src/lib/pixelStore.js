@@ -86,13 +86,25 @@ export async function toPortableSrc(src) {
   });
 }
 
-// Revokes blob URLs no longer referenced by the document or its undo
+// Every open tab registers a function listing the srcs it still needs
+// (its layers plus undo/redo history). Liveness is decided across all of
+// them: a layer dragged from one tab into another shares the same blob URL,
+// so one tab's cleanup must never revoke an image another tab still shows.
+const liveSources = new Set();
+export function registerLiveSrcs(collect) {
+  liveSources.add(collect);
+  return () => liveSources.delete(collect);
+}
+
+// Revokes blob URLs no longer referenced by any tab's document or undo
 // history. Recently created URLs are spared: an edit's new URL may not
 // have reached React state yet when this runs.
-export function releaseUnused(liveSrcs, graceMs = 60000) {
+export function releaseUnused(graceMs = 60000) {
+  const live = new Set();
+  liveSources.forEach((collect) => collect(live));
   const now = Date.now();
   for (const [url, info] of created) {
-    if (liveSrcs.has(url) || now - info.at < graceMs) continue;
+    if (live.has(url) || now - info.at < graceMs) continue;
     URL.revokeObjectURL(url);
     created.delete(url);
     decoded.delete(url);

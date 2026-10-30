@@ -704,7 +704,7 @@ body {
 }
 
 .dropzone-active::after {
-  content: "Drop image to add to canvas";
+  content: attr(data-drop-label);
   position: absolute;
   inset: 8px;
   border: 2px dashed var(--accent);
@@ -837,3 +837,105 @@ body {
   color: var(--text-faint);
   margin: 10px 0 4px;
 }
+
+/* ---------- export menu options ---------- */
+
+.export-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.export-option:hover:not(:disabled) { background: rgba(var(--accent-rgb), 0.1); }
+/* Pressing an option deepens the hover highlight; it stays that shade
+   while that export runs. */
+.export-option:active:not(:disabled),
+.export-option.pressed { background: rgba(var(--accent-rgb), 0.2); }
+.export-option:disabled { cursor: progress; }
+.export-option:disabled:not(.pressed) { color: var(--text-faint); }
+
+/* ---------- document tabs (src/components/DocumentTabs.jsx) ---------- */
+
+.doc-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 6px 10px 0;
+  background: var(--panel-solid-2);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  flex: none;
+}
+.doc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 0;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  flex: none;
+  position: relative;
+  top: 1px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.doc-tab:hover { background: rgba(var(--accent-rgb), 0.08); color: var(--text); }
+.doc-tab.active {
+  background: var(--panel-solid);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+.doc-tab.active::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.doc-tab.dragging { opacity: 0.5; }
+.doc-tab.drop-target {
+  background: rgba(var(--accent-rgb), 0.16);
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+  color: var(--text);
+}
+.doc-tab-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-tab-close,
+.doc-tab-new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  border-radius: 5px;
+  cursor: pointer;
+  flex: none;
+}
+.doc-tab-close { width: 18px; height: 18px; }
+.doc-tab-close svg { width: 12px; height: 12px; }
+.doc-tab-close:hover { background: rgba(var(--accent-rgb), 0.14); color: var(--text); }
+.doc-tab-new { width: 26px; height: 26px; margin: 0 0 3px 4px; }
+.doc-tab-new svg { width: 14px; height: 14px; }
+.doc-tab-new:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--text); }

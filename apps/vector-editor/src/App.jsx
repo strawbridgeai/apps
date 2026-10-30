@@ -16,6 +16,7 @@ import CanvasStage from './components/CanvasStage.jsx';
 import PropertiesPanel from './components/PropertiesPanel.jsx';
 import LayersPanel from './components/LayersPanel.jsx';
 import NewDocumentModal from './components/NewDocumentModal.jsx';
+import DocumentTabs from './components/DocumentTabs.jsx';
 import { TabList, TabTrigger } from './components/ui/tabs.jsx';
 import { downloadSvg, downloadPng, downloadJpeg, downloadPdf, downloadProjectJson } from './lib/exporters.js';
 import { RAW_ACCEPT } from './lib/rawImport.js';
@@ -48,7 +49,7 @@ export default function App() {
     toast,
     showToast,
     docSvgRef,
-    importFiles,
+    openFiles: openInWorkspace,
   } = useDoc();
 
   const [tab, setTab] = useState('properties');
@@ -58,6 +59,7 @@ export default function App() {
   const [exportQuality, setExportQuality] = useState(0.92);
   const fileInputRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [exportingKind, setExportingKind] = useState(null);
 
   const stepZoom = (dir) => {
     const idx = ZOOM_STEPS.findIndex((z) => z >= zoom);
@@ -76,6 +78,7 @@ export default function App() {
   const runExport = async (kind) => {
     const svg = docSvgRef.current;
     if (!svg) return;
+    setExportingKind(kind);
     try {
       if (kind === 'svg') await downloadSvg(svg, doc);
       else if (kind === 'png') await downloadPng(svg, doc, { scale });
@@ -85,13 +88,15 @@ export default function App() {
       setExportOpen(false);
     } catch {
       showToast('Export failed');
+    } finally {
+      setExportingKind(null);
     }
   };
 
   const openFiles = async (files) => {
     setBusy(true);
     try {
-      await importFiles(files);
+      await openInWorkspace(files);
     } finally {
       setBusy(false);
     }
@@ -200,19 +205,9 @@ export default function App() {
                     <button
                       key={kind}
                       type="button"
+                      className={`export-option ${exportingKind === kind ? 'pressed' : ''}`}
+                      disabled={!!exportingKind}
                       onClick={() => runExport(kind)}
-                      style={{
-                        display: 'block',
-                        width: '100%',
-                        textAlign: 'left',
-                        padding: '9px 12px',
-                        fontSize: '0.8rem',
-                        color: 'var(--text)',
-                        background: 'none',
-                        border: 'none',
-                      }}
-                      onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
-                      onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
                     >
                       {label}
                     </button>
@@ -223,6 +218,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      <DocumentTabs onNew={() => setNewDocOpen(true)} />
 
       <div className="app-body">
         <ToolRail />

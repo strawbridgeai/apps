@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDoc } from '../state/DocumentContext.jsx';
+import { useWorkspace, TAB_DRAG_TYPE } from '../state/Workspace.jsx';
 import ObjectRenderer from './ObjectRenderer.jsx';
 import { TOOL_SHORTCUTS } from './ToolRail.jsx';
 import {
@@ -33,6 +34,7 @@ const PAINT_TOOLS = ['brush', 'eraser', 'blur', 'burn', 'dodge', 'spot', 'clone'
 const SOURCE_TOOLS = ['clone', 'heal'];
 
 export default function CanvasStage() {
+  const { transferTab, draggingRef } = useWorkspace();
   const {
     doc,
     objects,
@@ -52,7 +54,10 @@ export default function CanvasStage() {
     pushUndoPoint,
     showToast,
     docSvgRef,
-    importFiles,
+    openFiles,
+    active,
+    tabId,
+    canvasAreaRef,
     undo,
     redo,
     duplicateSelected,
@@ -108,6 +113,7 @@ export default function CanvasStage() {
   // undo/redo closure made Ctrl+Shift+Z restore the wrong snapshot).
   const keyDownRef = useRef(null);
   keyDownRef.current = (e) => {
+    if (!active) return;
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || editingTextId) {
       if (e.key === 'Escape') finishTextEdit(false);
@@ -704,7 +710,7 @@ export default function CanvasStage() {
 
   // expose a couple of actions PropertiesPanel needs without prop drilling
   useEffect(() => {
-    window.__vectorStudio = { runRemoveBackground, applyCrop };
+    if (active) window.__vectorStudio = { runRemoveBackground, applyCrop };
   });
 
   // ---- text editing ----
@@ -747,19 +753,30 @@ export default function CanvasStage() {
 
   // ---- drag & drop / paste import ----
   useEffect(() => {
+    if (!active) return undefined;
     const onPaste = (e) => {
       const files = [...(e.clipboardData?.files || [])];
-      if (files.length) importFiles(files);
+      if (files.length) openFiles(files);
     };
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [importFiles]);
+  }, [openFiles, active]);
+
+  // Another tab dragged here (see DocumentTabs) lands as a layer centered
+  // where it's released; files from the desktop open in their own tabs.
+  const isForeignTabDrag = (e) =>
+    e.dataTransfer.types.includes(TAB_DRAG_TYPE) && draggingRef.current !== tabId;
 
   const onDrop = (e) => {
     e.preventDefault();
     setDropTarget(false);
+    if (e.dataTransfer.types.includes(TAB_DRAG_TYPE)) {
+      const from = e.dataTransfer.getData(TAB_DRAG_TYPE);
+      if (from && from !== tabId) transferTab(from, tabId, toDoc(e));
+      return;
+    }
     const files = [...e.dataTransfer.files];
-    if (files.length) importFiles(files);
+    if (files.length) openFiles(files);
   };
 
   // ---- render ----
@@ -768,10 +785,15 @@ export default function CanvasStage() {
 
   return (
     <div
+      ref={canvasAreaRef}
       className={`canvas-area ${isDropTarget ? 'dropzone-active' : ''}`}
+      data-drop-label={isDropTarget || undefined}
       onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(TAB_DRAG_TYPE) && !isForeignTabDrag(e)) return;
         e.preventDefault();
-        setDropTarget(true);
+        setDropTarget(
+          isForeignTabDrag(e) ? 'Drop to add as a layer here' : objects.length ? 'Drop to open in a new tab' : 'Drop image to open'
+        );
       }}
       onDragLeave={() => setDropTarget(false)}
       onDrop={onDrop}

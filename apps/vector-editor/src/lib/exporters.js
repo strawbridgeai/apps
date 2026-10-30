@@ -37,7 +37,7 @@ export async function downloadSvg(svgNode, doc) {
   downloadBlob(new Blob([str], { type: 'image/svg+xml' }), `${doc.name || 'artwork'}.svg`);
 }
 
-async function rasterize(svgNode, doc, { scale = 2, transparent = false } = {}) {
+export async function rasterize(svgNode, doc, { scale = 2, transparent = false } = {}) {
   const str = await svgNodeToString(svgNode, {
     width: doc.width,
     height: doc.height,
