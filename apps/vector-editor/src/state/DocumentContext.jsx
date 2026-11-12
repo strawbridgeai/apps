@@ -157,6 +157,11 @@ export function DocumentProvider({ tab, active, children }) {
     [commit, selectObjects]
   );
 
+  // A layer showing an in-progress canvas instead of its `src` ({ id,
+  // canvas }) — the develop panel paints slider previews into it directly,
+  // so a drag never re-encodes the image or re-renders the document.
+  const [liveLayer, setLiveLayer] = useState(null);
+
   // Non-committing live patch, used while dragging/resizing/typing for a
   // smooth preview; callers pair this with pushUndoPoint(preSnapshot) once
   // the interaction ends so undo captures one step, not every frame.
@@ -550,6 +555,8 @@ export function DocumentProvider({ tab, active, children }) {
     showToast,
     addObjects,
     patchObjectsLive,
+    liveLayer,
+    setLiveLayer,
     updateObjects,
     removeObjects,
     duplicateSelected,

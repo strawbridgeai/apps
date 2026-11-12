@@ -17,11 +17,12 @@ import {
 } from 'lucide-react';
 import { useDoc } from '../state/DocumentContext.jsx';
 import { RangeField } from './ui/field.jsx';
+import CurvesEditor from './CurvesEditor.jsx';
+import { developRemote, dropRemote } from '../lib/developClient.js';
 import { canvasFromDataUrl, canvasToUrl, reduceNoise, applyBokeh } from '../lib/rasterTools.js';
 import {
   DEVELOP_DEFAULT,
   isDevelopNeutral,
-  developCanvas,
   previewCopy,
   computeHistogram,
   autoDevelop,
@@ -88,35 +89,59 @@ function drawHistogram(canvasEl, hist) {
   fill(hist.b, 'rgba(40, 90, 200, 0.32)');
 }
 
-// Develop (white balance / tone / levels / color), filters, transforms,
-// noise reduction and bokeh for the selected image layer.
-//
-// Develop sliders are non-compounding within a session: they always
-// re-render from `base`, the image as it was when the session began.
-// While dragging, only a ≤1600px preview is rendered (fast even for a
-// 24MP RAW); on release the full-resolution result is computed once and
-// committed as a single undo step. Any edit made elsewhere (a brush
-// stroke, crop, filter, undo) starts a fresh session with neutral sliders.
-export default function ImageAdjustPanel({ image }) {
-  const { doc, setDoc, objects, patchObjectsLive, updateObjects, getSnapshot, pushUndoPoint, showToast } = useDoc();
+let sessionSeq = 0;
 
-  const sessionRef = useRef({ id: null, base: null, preview: null, baseSrc: null });
-  // src -> develop settings for every result this panel wrote (plus the
-  // session's starting image), so the reset effect can tell our own
-  // preview/commit apart from "the image changed under us" — and so undo
-  // and redo within a session put the sliders back where they were. Only
-  // the latest live preview is kept, so dragging doesn't pile up images.
+function imageDataOf(canvas) {
+  return canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height);
+}
+
+function dropSession(key) {
+  if (!key) return;
+  dropRemote(`${key}-p`);
+  dropRemote(`${key}-f`);
+}
+
+function decodeSrc(src) {
+  const img = new Image();
+  img.src = src;
+  return img.decode().catch(() => {});
+}
+
+// Develop (white balance / tone / curves / levels / color), filters,
+// transforms, noise reduction and bokeh for the selected image layer.
+//
+// Develop settings are non-compounding within a session: they always
+// re-render from `base`, the image as it was when the session began.
+// While dragging, a ≤1600px preview is developed in a worker and painted
+// straight into a live canvas the stage shows in place of the layer — no
+// encoding and no document update per frame, so the slider never waits on
+// the pixels. On release the full-resolution result is developed in a
+// second worker and committed as a single undo step. Any edit made
+// elsewhere (a brush stroke, crop, filter, undo) starts a fresh session
+// with neutral settings.
+export default function ImageAdjustPanel({ image }) {
+  const { doc, setDoc, objects, patchObjectsLive, setLiveLayer, updateObjects, getSnapshot, pushUndoPoint, showToast } = useDoc();
+
+  const sessionRef = useRef({ id: null, key: null, base: null, preview: null, baseSrc: null, live: null });
+  // src -> develop settings for every result this panel committed (plus
+  // the session's starting image), so the reset effect can tell our own
+  // commit apart from "the image changed under us" — and so undo and redo
+  // within a session put the sliders back where they were.
   const ownSrcsRef = useRef(new Map());
-  const lastPreviewRef = useRef(null);
   const preRef = useRef(null);
+  // genRef bumps on every settings change. paintedGenRef is the newest
+  // generation on screen (a preview older than a landed commit must not
+  // cover it); committingGenRef stops pointerup + keyup double commits.
   const genRef = useRef(0);
-  const rafRef = useRef(0);
+  const paintedGenRef = useRef(0);
+  const committingGenRef = useRef(-1);
+  const previewBusyRef = useRef(false);
+  const previewWantedRef = useRef(false);
   const histCanvasRef = useRef(null);
 
   const [develop, setDevelop] = useState(DEVELOP_DEFAULT);
   const developRef = useRef(DEVELOP_DEFAULT);
   const [hist, setHist] = useState(null);
-  const [committing, setCommitting] = useState(false);
   const [denoiseStrength, setDenoiseStrength] = useState(30);
   const [bokeh, setBokeh] = useState({ focusX: 50, focusY: 50, radius: 45, feather: 60, strength: 55 });
   const [sharpen, setSharpen] = useState({ amount: 60, radius: 2 });
@@ -124,6 +149,10 @@ export default function ImageAdjustPanel({ image }) {
   const [posterLevels, setPosterLevels] = useState(5);
   const [vignetteAmount, setVignetteAmount] = useState(45);
   const [busy, setBusy] = useState(null);
+
+  function clearLive(id) {
+    setLiveLayer((l) => (l && l.id === id ? null : l));
+  }
 
   useEffect(() => {
     const known = ownSrcsRef.current.get(image.src);
@@ -135,15 +164,22 @@ export default function ImageAdjustPanel({ image }) {
       return;
     }
     let cancelled = false;
-    sessionRef.current = { id: image.id, base: null, preview: null, baseSrc: image.src };
+    dropSession(sessionRef.current.key);
+    const key = `dev-${++sessionSeq}`;
+    genRef.current++;
+    paintedGenRef.current = genRef.current;
+    clearLive(image.id);
+    sessionRef.current = { id: image.id, key, base: null, preview: null, baseSrc: image.src, live: null };
     ownSrcsRef.current = new Map([[image.src, DEVELOP_DEFAULT]]);
-    lastPreviewRef.current = null;
     developRef.current = DEVELOP_DEFAULT;
     setDevelop(DEVELOP_DEFAULT);
     canvasFromDataUrl(image.src, image.pixelWidth, image.pixelHeight).then((canvas) => {
       if (cancelled) return;
       const preview = previewCopy(canvas);
-      sessionRef.current = { id: image.id, base: canvas, preview, baseSrc: image.src };
+      const live = document.createElement('canvas');
+      live.width = preview.width;
+      live.height = preview.height;
+      sessionRef.current = { id: image.id, key, base: canvas, preview, baseSrc: image.src, live };
       setHist(computeHistogram(preview));
     });
     return () => {
@@ -151,33 +187,42 @@ export default function ImageAdjustPanel({ image }) {
     };
   }, [image.id, image.src]);
 
+  useEffect(() => () => dropSession(sessionRef.current.key), []);
+
   useEffect(() => drawHistogram(histCanvasRef.current, hist), [hist]);
 
-  function writeOwnSrc(src, settings, isPreview) {
-    if (lastPreviewRef.current) ownSrcsRef.current.delete(lastPreviewRef.current);
-    lastPreviewRef.current = isPreview ? src : null;
+  function writeOwnSrc(src, settings) {
     if (!ownSrcsRef.current.has(src)) ownSrcsRef.current.set(src, settings);
     patchObjectsLive([image.id], () => ({ src }));
   }
 
-  // genRef orders previews and commits: every slider change bumps it (so
-  // an in-flight full-res commit for older values is dropped), and so does
-  // every commit (so a preview still queued for the next frame can't land
-  // on top of the full-resolution result).
-  function renderPreviewNow() {
-    const { preview } = sessionRef.current;
-    if (!preview) return;
-    const out = developCanvas(preview, developRef.current);
-    setHist(computeHistogram(out));
-    writeOwnSrc(out.toDataURL('image/png'), developRef.current, true);
+  // At most one preview in flight; whatever the settings are when it
+  // returns is what gets rendered next, so fast drags skip stale frames
+  // instead of queueing them.
+  async function pumpPreview() {
+    const s = sessionRef.current;
+    if (previewBusyRef.current || !previewWantedRef.current || !s.preview) return;
+    previewWantedRef.current = false;
+    previewBusyRef.current = true;
+    const gen = genRef.current;
+    let res = null;
+    try {
+      res = await developRemote('preview', `${s.key}-p`, () => imageDataOf(s.preview), developRef.current, { hist: true });
+    } finally {
+      previewBusyRef.current = false;
+    }
+    if (sessionRef.current === s && gen > paintedGenRef.current) {
+      paintedGenRef.current = gen;
+      s.live.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.buffer), res.width, res.height), 0, 0);
+      setLiveLayer((l) => (l && l.id === s.id && l.canvas === s.live ? l : { id: s.id, canvas: s.live }));
+      setHist(res.hist);
+    }
+    pumpPreview();
   }
 
-  function renderPreview() {
-    cancelAnimationFrame(rafRef.current);
-    const gen = genRef.current;
-    rafRef.current = requestAnimationFrame(() => {
-      if (gen === genRef.current) renderPreviewNow();
-    });
+  function requestPreview() {
+    previewWantedRef.current = true;
+    pumpPreview();
   }
 
   function beginEdit() {
@@ -185,21 +230,33 @@ export default function ImageAdjustPanel({ image }) {
   }
 
   async function commitFull() {
-    const { base, baseSrc } = sessionRef.current;
-    if (!base || !preRef.current) return;
-    cancelAnimationFrame(rafRef.current);
-    const gen = ++genRef.current;
-    setCommitting(true);
-    // Yield a frame so the "Applying…" state paints before the heavy loop.
-    await new Promise((r) => setTimeout(r, 16));
-    if (gen !== genRef.current) return;
+    const s = sessionRef.current;
+    if (!s.base || !preRef.current) return;
+    const gen = genRef.current;
+    if (committingGenRef.current === gen) return;
+    committingGenRef.current = gen;
     const settings = developRef.current;
-    const src = isDevelopNeutral(settings) ? baseSrc : await canvasToUrl(developCanvas(base, settings));
-    if (gen !== genRef.current) return;
-    writeOwnSrc(src, settings, false);
+    const stale = () => gen !== genRef.current || sessionRef.current !== s;
+    let src = s.baseSrc;
+    if (!isDevelopNeutral(settings)) {
+      const res = await developRemote('full', `${s.key}-f`, () => imageDataOf(s.base), settings);
+      if (stale()) return;
+      const out = document.createElement('canvas');
+      out.width = res.width;
+      out.height = res.height;
+      out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(res.buffer), res.width, res.height), 0, 0);
+      src = await canvasToUrl(out);
+      if (stale()) return;
+      // Swap the live preview out only once the full image can paint, so
+      // the layer never flashes empty between the two.
+      await decodeSrc(src);
+      if (stale()) return;
+    }
+    paintedGenRef.current = gen;
+    writeOwnSrc(src, settings);
     pushUndoPoint(preRef.current);
     preRef.current = null;
-    setCommitting(false);
+    clearLive(s.id);
   }
 
   function setDevelopValue(key, value) {
@@ -208,7 +265,7 @@ export default function ImageAdjustPanel({ image }) {
     const next = { ...developRef.current, [key]: value };
     developRef.current = next;
     setDevelop(next);
-    renderPreview();
+    requestPreview();
   }
 
   function applyDevelopPreset(next) {
@@ -216,7 +273,7 @@ export default function ImageAdjustPanel({ image }) {
     genRef.current++;
     developRef.current = next;
     setDevelop(next);
-    renderPreviewNow();
+    requestPreview();
     commitFull();
   }
 
@@ -341,7 +398,6 @@ export default function ImageAdjustPanel({ image }) {
           <Undo /> Reset
         </button>
       </div>
-      {committing && <p className="empty-hint" style={{ padding: '0 0 6px' }}>Applying at full resolution…</p>}
       {DEVELOP_GROUPS.map(([group, fields]) => (
         <div key={group}>
           <div className="subsection-label">{group}</div>
@@ -352,6 +408,13 @@ export default function ImageAdjustPanel({ image }) {
               title="Double-click to reset"
               {...dragHandlers} />
           ))}
+          {group === 'Tone' && (
+            <>
+              <div className="subsection-label">Curves</div>
+              <CurvesEditor curves={develop.curves} hist={hist}
+                onChange={(c) => setDevelopValue('curves', c)} onCommit={commitFull} />
+            </>
+          )}
         </div>
       ))}
 

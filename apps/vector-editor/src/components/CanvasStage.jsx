@@ -47,6 +47,7 @@ export default function CanvasStage() {
     zoom,
     setZoom,
     patchObjectsLive,
+    liveLayer,
     updateObjects,
     addObjects,
     removeObjects,
@@ -822,7 +823,9 @@ export default function CanvasStage() {
               key={obj.id}
               obj={obj}
               editingTextId={editingTextId}
-              liveCanvas={liveStroke?.id === obj.id ? liveStroke.canvas : null}
+              liveCanvas={
+                liveStroke?.id === obj.id ? liveStroke.canvas : liveLayer?.id === obj.id ? liveLayer.canvas : null
+              }
             />
           ))}
           {pendingPath && (

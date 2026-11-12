@@ -20,10 +20,98 @@ export const DEVELOP_DEFAULT = {
   vibrance: 0,
   saturation: 0,
   hue: 0, // -180..180 degrees
+  // Tone curves as control points [input, output] in 0..255, sorted by
+  // input. `rgb` is the master curve; r/g/b are applied on top of it.
+  curves: {
+    rgb: [[0, 0], [255, 255]],
+    r: [[0, 0], [255, 255]],
+    g: [[0, 0], [255, 255]],
+    b: [[0, 0], [255, 255]],
+  },
 };
 
+export function isCurveNeutral(pts) {
+  return !pts || pts.every(([x, y]) => x === y) && pts[0][0] === 0 && pts[pts.length - 1][0] === 255;
+}
+
+function curvesNeutral(c) {
+  return !c || ['rgb', 'r', 'g', 'b'].every((k) => isCurveNeutral(c[k]));
+}
+
 export function isDevelopNeutral(s) {
-  return Object.keys(DEVELOP_DEFAULT).every((k) => s[k] === DEVELOP_DEFAULT[k]);
+  return Object.keys(DEVELOP_DEFAULT).every((k) =>
+    k === 'curves' ? curvesNeutral(s.curves) : s[k] === DEVELOP_DEFAULT[k]
+  );
+}
+
+// Monotone cubic (Fritsch–Carlson) through the control points, so a curve
+// never overshoots between points the way a natural spline can. Returns
+// x -> y in the points' own 0..255 space, flat beyond the end points.
+export function curveSampler(pts) {
+  const n = pts.length;
+  const xs = pts.map((p) => p[0]);
+  const ys = pts.map((p) => p[1]);
+  if (n < 2) return () => ys[0] ?? 0;
+  const d = [];
+  for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / Math.max(1e-6, xs[i + 1] - xs[i]));
+  const m = new Array(n);
+  m[0] = d[0];
+  m[n - 1] = d[n - 2];
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+      continue;
+    }
+    const a = m[i] / d[i];
+    const b = m[i + 1] / d[i];
+    const s = a * a + b * b;
+    if (s > 9) {
+      const t = 3 / Math.sqrt(s);
+      m[i] = t * a * d[i];
+      m[i + 1] = t * b * d[i];
+    }
+  }
+  return (x) => {
+    if (x <= xs[0]) return ys[0];
+    if (x >= xs[n - 1]) return ys[n - 1];
+    let k = 0;
+    while (x > xs[k + 1]) k++;
+    const h = xs[k + 1] - xs[k];
+    const t = (x - xs[k]) / h;
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return (
+      (2 * t3 - 3 * t2 + 1) * ys[k] +
+      (t3 - 2 * t2 + t) * h * m[k] +
+      (-2 * t3 + 3 * t2) * ys[k + 1] +
+      (t3 - t2) * h * m[k + 1]
+    );
+  };
+}
+
+const CURVE_LUT_SIZE = 1024;
+
+// Master curve composed with each channel curve into one 0..1 -> 0..1
+// lookup per channel, or null when every curve is the identity.
+function curveLuts(c) {
+  if (curvesNeutral(c)) return null;
+  const master = curveSampler(c.rgb);
+  const out = {};
+  for (const k of ['r', 'g', 'b']) {
+    const ch = curveSampler(c[k]);
+    const lut = new Float32Array(CURVE_LUT_SIZE);
+    for (let i = 0; i < CURVE_LUT_SIZE; i++) {
+      const v = ch(Math.min(255, Math.max(0, master((i / (CURVE_LUT_SIZE - 1)) * 255))));
+      lut[i] = Math.min(255, Math.max(0, v)) / 255;
+    }
+    out[k] = lut;
+  }
+  return out;
+}
+function lutIndex(v) {
+  return v <= 0 ? 0 : v >= 1 ? CURVE_LUT_SIZE - 1 : (v * (CURVE_LUT_SIZE - 1) + 0.5) | 0;
 }
 
 const SRGB_TO_LINEAR = new Float32Array(256);
@@ -88,6 +176,7 @@ export function applyDevelop(src, out, s) {
   const vib = s.vibrance / 100;
   const doHue = s.hue !== 0;
   const m = doHue ? hueMatrix(s.hue) : null;
+  const curve = curveLuts(s.curves);
 
   for (let i = 0; i < a.length; i += 4) {
     let r = linToSrgb(SRGB_TO_LINEAR[a[i]] * rGain);
@@ -121,6 +210,12 @@ export function applyDevelop(src, out, s) {
       r = r <= 0 ? 0 : r >= 1 ? 1 : Math.pow(r, invGamma);
       g = g <= 0 ? 0 : g >= 1 ? 1 : Math.pow(g, invGamma);
       b = b <= 0 ? 0 : b >= 1 ? 1 : Math.pow(b, invGamma);
+    }
+
+    if (curve) {
+      r = curve.r[lutIndex(r)];
+      g = curve.g[lutIndex(g)];
+      b = curve.b[lutIndex(b)];
     }
 
     if (doHue) {
@@ -181,7 +276,11 @@ export function previewCopy(canvas, maxEdge = 1600) {
 // Per-channel + luminance histograms (256 bins), ignoring transparent pixels.
 export function computeHistogram(canvas) {
   const { width, height } = canvas;
-  const d = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data;
+  return histogramOf(canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, width, height).data);
+}
+
+// Same, straight from RGBA bytes (usable inside a worker).
+export function histogramOf(d) {
   const r = new Uint32Array(256);
   const g = new Uint32Array(256);
   const b = new Uint32Array(256);

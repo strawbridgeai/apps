@@ -939,3 +939,100 @@ body {
 .doc-tab-new { width: 26px; height: 26px; margin: 0 0 3px 4px; }
 .doc-tab-new svg { width: 14px; height: 14px; }
 .doc-tab-new:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--text); }
+
+/* Curves (Develop › Tone) */
+.curves { margin-bottom: 12px; }
+.curves-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.curves-channels {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--panel-solid-2);
+  border: 1px solid var(--border);
+}
+.curves-channels button {
+  flex: 1;
+  border: 0;
+  background: none;
+  padding: 3px 0;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.curves-channels button.active {
+  background: var(--panel-solid);
+  color: var(--chan);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+.curves-reset {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.curves-reset:disabled { opacity: 0.4; cursor: default; }
+.curves-reset svg { width: 14px; height: 14px; }
+.curves-graph {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: var(--panel-solid-2);
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+.curves-hist { opacity: 0.14; }
+.curves-grid line,
+.curves-frame {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.curves-diagonal {
+  stroke: var(--text-faint);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+.curves-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.curves-pt {
+  fill: var(--panel-solid);
+  stroke: var(--chan);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  cursor: grab;
+}
+.curves-pt.active { fill: var(--chan); }
+/* Fixed height so the readout swapping text never shifts the sliders. */
+.curves-readout {
+  display: flex;
+  gap: 12px;
+  height: 18px;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.curves-readout b { color: var(--text); font-weight: 600; }
